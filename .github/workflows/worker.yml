@@ -1,0 +1,37 @@
+# Cloudflare Worker(worker/) 배포. Secret: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, OXR_APP_ID
+name: worker
+on:
+  push:
+    branches: [main]
+    paths: ["worker/**", ".github/workflows/worker.yml"]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: KV 저장소 (없으면 만듦)
+        run: |
+          set -e
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          id=$(curl -sf -H "$auth" "$api?per_page=100" | jq -r '.result[] | select(.title=="zerorate-data") | .id' | head -1)
+          [ -n "$id" ] || id=$(curl -sf -X POST -H "$auth" -H "Content-Type: application/json" -d '{"title":"zerorate-data"}' "$api" | jq -r .result.id)
+          [ -n "$id" ] && [ "$id" != "null" ]
+          sed -i "s/KV_ID/$id/" worker/wrangler.toml
+      - name: 배포
+        working-directory: worker
+        run: npx -y wrangler@4 deploy
+      - name: 키 넣기
+        working-directory: worker
+        run: printf '%s' "${{ secrets.OXR_APP_ID }}" | npx -y wrangler@4 secret put OXR_APP_ID
+      - name: 확인
+        run: |
+          sub=$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
+          url="https://zerorate.$sub.workers.dev"
+          echo "주소: $url"
+          sleep 5
+          curl -sf "$url/latest.json" | jq -r '"환율 시각 \(.timestamp | strftime("%F %H:%M UTC"))"'
