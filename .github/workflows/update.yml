@@ -18,10 +18,13 @@ jobs:
           set -e
           mkdir -p out/historical
           curl -sf "https://openexchangerates.org/api/latest.json?app_id=$KEY" -o out/latest.json
-          # 30일 전 마감 환율 (앱의 1달 변화용) — 앞뒤 하루 여유로 3개
+          # 30일 전 마감 환율 (앱의 1달 변화용) — 앞뒤 하루 여유로 3개.
+          # 이미 올라가 있는 날짜는 그대로 가져와서 OXR은 하루 1번 정도만 더 씀 (월 약 750회)
           for d in 29 30 31; do
             day=$(date -u -d "-$d day" +%F)
-            curl -sf "https://openexchangerates.org/api/historical/$day.json?app_id=$KEY" -o "out/historical/$day.json" || true
+            curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/data/historical/$day.json" -o "out/historical/$day.json" \
+              || curl -sf "https://openexchangerates.org/api/historical/$day.json?app_id=$KEY" -o "out/historical/$day.json" \
+              || true
           done
       - name: publish
         run: |
