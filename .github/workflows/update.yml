@@ -28,7 +28,7 @@ jobs:
           now=$(date -u +%Y%m%d%H)
           have=$(jq -r '.timestamp // 0' out/latest.json 2>/dev/null || echo 0)
           have=$(date -u -d "@$have" +%Y%m%d%H)
-          tries=$(awk -v h="$now" '$1==h{print $2}' out/oxr_try.txt 2>/dev/null)
+          tries=$(awk -v h="$now" '$1==h{print $2}' out/oxr_try.txt 2>/dev/null || true)
           tries=${tries:-0}
           if [ "$have" = "$now" ]; then echo "이번 시각 자료 있음"; exit 0; fi
           if [ "$tries" -ge 1 ]; then
