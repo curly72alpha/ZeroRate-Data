@@ -4,7 +4,7 @@
 name: update
 on:
   schedule:
-    - cron: "5 * * * *"   # 매시 5분 (OXR은 정각에 갱신)
+    - cron: "23 * * * *"  # 매시 23분 (OXR은 정각에 갱신. 정각 근처는 GitHub가 붐벼 예약 실행이 밀리거나 빠짐)
   workflow_dispatch:
 permissions:
   contents: write
