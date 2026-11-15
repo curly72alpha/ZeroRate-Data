@@ -1,0 +1,35 @@
+# 1시간마다 Open Exchange Rates를 받아 data 브랜치에 JSON으로 올림 (ZeroRate 앱이 읽음)
+# 키는 이 저장소 Secret OXR_APP_ID에만 있고 앱에는 없음 → 사용자가 늘어도 OXR 사용량은 시간당 1회
+name: update
+on:
+  schedule:
+    - cron: "5 * * * *"   # 매시 5분 (OXR은 정각에 갱신)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch
+        env:
+          KEY: ${{ secrets.OXR_APP_ID }}
+        run: |
+          set -e
+          mkdir -p out/historical
+          curl -sf "https://openexchangerates.org/api/latest.json?app_id=$KEY" -o out/latest.json
+          # 30일 전 마감 환율 (앱의 1달 변화용) — 앞뒤 하루 여유로 3개
+          for d in 29 30 31; do
+            day=$(date -u -d "-$d day" +%F)
+            curl -sf "https://openexchangerates.org/api/historical/$day.json?app_id=$KEY" -o "out/historical/$day.json" || true
+          done
+      - name: publish
+        run: |
+          cd out
+          git init -q -b data
+          git config user.name "zerorate-bot"
+          git config user.email "zerorate-bot@users.noreply.github.com"
+          git add -A
+          git commit -qm "update $(date -u +%FT%TZ)"
+          # 기록을 쌓지 않고 한 커밋만 유지
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
