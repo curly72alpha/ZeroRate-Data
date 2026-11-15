@@ -1,12 +1,10 @@
 # ZeroRate 앱이 읽는 자료를 받아 data 브랜치에 JSON으로 올림. 키는 이 저장소 Secret에만 있고 앱에는 없음.
-#  - 환율(OXR): 매시 4·14·34분에 깨어나, 이번 시각 자료가 아직 없을 때만 받음
-#    → 정각 직후 바로 보이고, 예약이 빠져도 다음 깨움이 메움. OXR은 시간당 1회(월 약 750회),
-#      다시 받기는 한 시간에 한 번만, 그것도 이번 달 남은 횟수가 넉넉할 때만.
+#  - 환율(OXR)은 Cloudflare Worker(worker/)가 맡음 — 여기선 예전 앱을 위해 Worker 것을 복사만(OXR 안 부름)
 #  - FRED·ECOS·KRX 금: 3시간마다 (대부분 하루 1번 바뀌는 자료) — 그 사이엔 이전 파일 유지
 name: update
 on:
   schedule:
-    - cron: "4,14,34 * * * *"  # GitHub 예약은 붐비면 밀리거나 빠져서 한 시간에 세 번 깨움
+    - cron: "17 * * * *"  # 3시간 칸마다 한 번 받음 (예약이 빠져도 다음 시간에 메움)
   workflow_dispatch:
 permissions:
   contents: write
@@ -18,40 +16,17 @@ jobs:
         run: |
           git clone -q --depth 1 -b data "https://github.com/${{ github.repository }}.git" out || mkdir -p out
           rm -rf out/.git
+          rm -f out/oxr_try.txt
           mkdir -p out/historical out/fred out/ecos out/krx
 
-      - name: 환율 (OXR, 매시간)
-        env:
-          KEY: ${{ secrets.OXR_APP_ID }}
+      - name: 환율 사본 (예전 앱용 — Worker에서 복사, OXR은 부르지 않음)
         run: |
-          set -e
-          now=$(date -u +%Y%m%d%H)
-          have=$(jq -r '.timestamp // 0' out/latest.json 2>/dev/null || echo 0)
-          have=$(date -u -d "@$have" +%Y%m%d%H)
-          tries=$(awk -v h="$now" '$1==h{print $2}' out/oxr_try.txt 2>/dev/null || true)
-          tries=${tries:-0}
-          if [ "$have" = "$now" ]; then echo "이번 시각 자료 있음"; exit 0; fi
-          if [ "$tries" -ge 1 ]; then
-            # 정각 직후라 아직 지난 시각 자료가 왔던 경우: 한 번만, 남은 횟수가 넉넉할 때만 다시
-            [ "$tries" -ge 2 ] && { echo "이번 시각은 이미 두 번 받음"; exit 0; }
-            u=$(curl -sf "https://openexchangerates.org/api/usage.json?app_id=$KEY" || echo '{}')
-            left=$(echo "$u" | jq -r '.data.usage.requests_remaining // 0')
-            days=$(echo "$u" | jq -r '.data.usage.days_remaining // 31')
-            [ "$left" -gt $((days * 30)) ] || { echo "남은 횟수가 빠듯해 다시 받지 않음 ($left / $days일)"; exit 0; }
-          fi
-          echo "$now $((tries + 1))" > out/oxr_try.txt
-          echo "CHANGED=1" >> "$GITHUB_ENV"
-          curl -sf "https://openexchangerates.org/api/latest.json?app_id=$KEY" -o out/latest.json.new && mv out/latest.json.new out/latest.json
-          # 30일 전 마감 환율 (앱의 1달 변화용) — 앞뒤 하루 여유로 3개, 이미 있으면 그대로
-          keep=""
+          W=https://zerorate.curly72alpha.workers.dev
+          curl -sf "$W/latest.json" -o out/latest.json.new && mv out/latest.json.new out/latest.json && echo "CHANGED=1" >> "$GITHUB_ENV" || true
+          rm -f out/historical/*.json
           for d in 29 30 31; do
             day=$(date -u -d "-$d day" +%F)
-            keep="$keep $day.json"
-            [ -s "out/historical/$day.json" ] || curl -sf "https://openexchangerates.org/api/historical/$day.json?app_id=$KEY" -o "out/historical/$day.json" || true
-          done
-          # 지난 날짜 파일은 지움
-          for f in out/historical/*.json; do
-            case " $keep " in *" $(basename "$f") "*) ;; *) rm -f "$f" ;; esac
+            curl -sf "$W/historical/$day.json" -o "out/historical/$day.json" || rm -f "out/historical/$day.json"
           done
 
       - name: 금리·시장·금 (3시간마다, 파일이 없으면 바로)

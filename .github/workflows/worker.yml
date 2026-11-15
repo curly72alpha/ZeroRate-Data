@@ -44,3 +44,6 @@ jobs:
           echo "주소: $url"
           sleep 5
           curl -sf "$url/latest.json" | jq -r '"환율 시각 \(.timestamp | strftime("%F %H:%M UTC"))"'
+          curl -sf "$url/historical/$(date -u -d '-30 day' +%F).json" | jq -r '"30일 전 \(.timestamp | strftime("%F"))"'
+          curl -sf "$url/fred/UNRATE.json" | jq -r '"FRED 실업률 \(.observations[0].date)"'
+          curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개"'
