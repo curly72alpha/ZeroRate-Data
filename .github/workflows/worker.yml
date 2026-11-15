@@ -22,6 +22,15 @@ jobs:
           [ -n "$id" ] || id=$(curl -sf -X POST -H "$auth" -H "Content-Type: application/json" -d '{"title":"zerorate-data"}' "$api" | jq -r .result.id)
           [ -n "$id" ] && [ "$id" != "null" ]
           sed -i "s/KV_ID/$id/" worker/wrangler.toml
+      - name: workers.dev 주소 (없으면 만듦)
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          sub=$(curl -s -H "$auth" "$api" | jq -r '.result.subdomain // empty')
+          if [ -z "$sub" ]; then
+            curl -s -X PUT -H "$auth" -H "Content-Type: application/json" -d '{"subdomain":"zerorate-curly72"}' "$api" | jq -c '{success, errors}'
+          fi
+          echo "주소 앞부분: $(curl -s -H "$auth" "$api" | jq -r .result.subdomain)"
       - name: 배포
         working-directory: worker
         run: npx -y wrangler@4 deploy
