@@ -36,7 +36,10 @@ jobs:
         run: npx -y wrangler@4 deploy
       - name: 키 넣기
         working-directory: worker
-        run: printf '%s' "${{ secrets.OXR_APP_ID }}" | npx -y wrangler@4 secret put OXR_APP_ID
+        run: |
+          printf '%s' "${{ secrets.OXR_APP_ID }}" | npx -y wrangler@4 secret put OXR_APP_ID
+          printf '%s' "${{ secrets.FRED_API_KEY }}" | npx -y wrangler@4 secret put FRED_API_KEY
+          printf '%s' "${{ secrets.ECOS_API_KEY }}" | npx -y wrangler@4 secret put ECOS_API_KEY
       - name: 확인
         run: |
           sub=$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
@@ -45,5 +48,9 @@ jobs:
           sleep 5
           curl -sf "$url/latest.json" | jq -r '"환율 시각 \(.timestamp | strftime("%F %H:%M UTC"))"'
           curl -sf "$url/historical/$(date -u -d '-30 day' +%F).json" | jq -r '"30일 전 \(.timestamp | strftime("%F"))"'
+          curl -sf "$url/fred/UNRATE.json" > /dev/null   # 낡았으면 Worker가 뒤에서 FRED·ECOS를 받기 시작
+          sleep 40
           curl -sf "$url/fred/UNRATE.json" | jq -r '"FRED 실업률 \(.observations[0].date)"'
+          curl -sf "$url/fred/VIXCLS.json" | jq -r '"FRED VIX \(.observations[0].date) (\(.observations | length)개)"'
+          curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개"'

@@ -4,7 +4,7 @@ compatibility_date = "2026-11-01"
 workers_dev = true
 
 [triggers]
-crons = ["1 * * * *", "6 * * * *", "16 * * * *"]
+crons = ["1 * * * *", "6 * * * *", "16 * * * *", "31 */3 * * *"]  # 마지막: FRED·ECOS
 
 [[kv_namespaces]]
 binding = "DATA"
