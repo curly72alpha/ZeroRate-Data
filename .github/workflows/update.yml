@@ -67,6 +67,7 @@ jobs:
           ecos 817Y002 D "$d50" "$today" 010200000 y3.json
           ecos 817Y002 D "$d50" "$today" 010210000 y10.json
           ecos 901Y009 M "$m17" "$mon" 0 cpi.json
+          ecos 722Y001 M "$m17" "$mon" 0101000 base_m.json   # 기준금리 월별 (1년 전 비교)
 
           # KRX 금시장 (공공데이터포털): 최근 10년, 1000개씩 쪽을 넘겨 한 파일로 합침
           from=$(date -u -d "-10 year" +%Y%m%d)
