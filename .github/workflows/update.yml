@@ -47,18 +47,18 @@ jobs:
           echo "CHANGED=1" >> "$GITHUB_ENV"
 
           # FRED: 최신순 2700개 (앱이 필요한 만큼 잘라 씀)
-          for id in UNRATE DGS2 DFEDTARU DFEDTARL T10Y2Y SP500 NASDAQQGLDI DEXKOUS; do
+          for id in UNRATE DGS2 DFEDTARU DFEDTARL T10Y2Y SP500 NASDAQQGLDI DEXKOUS A191RL1Q225SBEA DTWEXBGS WALCL VIXCLS; do
             curl -sf "https://api.stlouisfed.org/fred/series/observations?series_id=$id&api_key=$FRED&file_type=json&sort_order=desc&limit=2700" \
               -o "out/fred/$id.json.new" && mv "out/fred/$id.json.new" "out/fred/$id.json" || echo "FRED $id 실패"
           done
           curl -sf "https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL&api_key=$FRED&file_type=json&sort_order=desc&limit=40&units=pc1" \
             -o out/fred/CPIAUCSL_pc1.json.new && mv out/fred/CPIAUCSL_pc1.json.new out/fred/CPIAUCSL_pc1.json || echo "FRED CPI 실패"
 
-          # ECOS: 앱과 같은 기간 (일별 50일, 월별 17달)
+          # ECOS: 일별 50일, 월별 26달
           today=$(TZ=Asia/Seoul date +%Y%m%d)
           d50=$(TZ=Asia/Seoul date -d "-50 day" +%Y%m%d)
           mon=$(TZ=Asia/Seoul date +%Y%m)
-          m17=$(TZ=Asia/Seoul date -d "-520 day" +%Y%m)
+          m17=$(TZ=Asia/Seoul date -d "-800 day" +%Y%m)   # 26달: 1년 전의 전년비까지
           ecos() {  # 표 주기 시작 끝 항목 파일
             curl -sf "https://ecos.bok.or.kr/api/StatisticSearch/$ECOS/json/kr/1/100/$1/$2/$3/$4/$5" -o "out/ecos/$6.new" \
               && grep -q '"row"' "out/ecos/$6.new" && mv "out/ecos/$6.new" "out/ecos/$6" || { rm -f "out/ecos/$6.new"; echo "ECOS $6 실패"; }
