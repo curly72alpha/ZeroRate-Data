@@ -1,0 +1,12 @@
+# 임시 확인용
+name: probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          W=https://zerorate.curly72alpha.workers.dev
+          for id in DGS2 SP500 UNRATE T10Y2Y; do echo "$id worker: $(curl -s $W/fred/$id.json | jq -r '.observations[0].date')"; done
+          echo "ecos base: $(curl -s $W/ecos/base.json | jq -r '.StatisticSearch.row[-1].TIME')"
+          echo "FRED direct DGS2 (no key, page): $(curl -s 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS2' | tail -2 | tr '\n' ' ')"
