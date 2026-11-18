@@ -41,6 +41,9 @@ jobs:
           printf '%s' "${{ secrets.FRED_API_KEY }}" | npx -y wrangler@4 secret put FRED_API_KEY
           printf '%s' "${{ secrets.ECOS_API_KEY }}" | npx -y wrangler@4 secret put ECOS_API_KEY
           printf '%s' "${{ secrets.DATA_GO_KR_KEY }}" | npx -y wrangler@4 secret put DATA_GO_KR_KEY
+      - name: 일정 새로 받게 (배포한 코드로)
+        working-directory: worker
+        run: npx -y wrangler@4 kv key delete events.json --binding DATA --remote || true
       - name: 확인
         run: |
           sub=$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
