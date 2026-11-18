@@ -55,5 +55,5 @@ jobs:
           curl -sf "$url/fred/VIXCLS.json" | jq -r '"FRED VIX \(.observations[0].date) (\(.observations | length)개)"'
           curl -sf "$url/ecos/deposit.json" | jq -r '"ECOS 정기예금 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
-          for id in 10 50 101; do curl -s "$url/fred/rel_$id.json" | jq -r --arg id $id '"발표 일정 \($id): \([.release_dates[]?.date] | join(" "))"' || true; done
+          curl -s "$url/events.json" | jq -c . || true
           curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개, 받은 것 \(.response.body.items.item | length)개"'

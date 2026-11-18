@@ -62,6 +62,54 @@ async function updateKrx(env) {
   }
 }
 
+// 미장 주요 일정 → events.json {fomc, cpi, jobs: ["YYYY-MM-DD", …]} (앱은 받은 날짜를 쓰고, 그 뒤는 앱에 넣어 둔 목록)
+//   FOMC: 연준 일정표 페이지 (해마다 연준이 다음 해를 올림) — 결정일 = 회의 마지막 날
+//   CPI·고용: BLS 일정(막히면) → FRED 다음 발표일
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36";
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const pad = n => String(n).padStart(2, "0");
+async function updateEvents(env) {
+  const out = { fomc: [], cpi: [], jobs: [], src: {} };
+  try {
+    const html = await fetch("https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", { headers: { "user-agent": UA } }).then(r => r.text());
+    const panels = html.split(/>(\d{4}) FOMC Meetings</);
+    for (let i = 1; i + 1 < panels.length; i += 2) {
+      const year = Number(panels[i]);
+      const re = /fomc-meeting__month[^>]*><strong>([A-Za-z/]+)<\/strong>[\s\S]*?fomc-meeting__date[^>]*>([^<]*)</g;
+      for (const m of panels[i + 1].matchAll(re)) {
+        const d = m[2].trim().match(/^(\d{1,2})-(\d{1,2})\*?$/);   // "17-18*" 만 (표결·임시 회의는 뺌)
+        if (!d) continue;
+        const mon = MONTHS.indexOf(m[1].split("/").pop()) + 1;
+        if (mon > 0) out.fomc.push(`${year}-${pad(mon)}-${pad(d[2])}`);
+      }
+    }
+    out.src.fomc = out.fomc.length;
+  } catch (e) { out.src.fomc = "error " + e; }
+  try {
+    const ics = await fetch("https://www.bls.gov/schedule/news_release/bls.ics", { headers: { "user-agent": UA, accept: "text/calendar,*/*" } });
+    out.src.bls = ics.status;
+    if (ics.ok) {
+      for (const ev of (await ics.text()).split("BEGIN:VEVENT").slice(1)) {
+        const sum = (ev.match(/SUMMARY[^:]*:(.*)/) || [])[1] || "";
+        const dt = (ev.match(/DTSTART[^:]*:(\d{4})(\d\d)(\d\d)/) || []).slice(1).join("-");
+        if (!dt) continue;
+        if (/^Consumer Price Index/i.test(sum)) out.cpi.push(dt);
+        if (/^Employment Situation/i.test(sum)) out.jobs.push(dt);
+      }
+    }
+  } catch (e) { out.src.bls = "error " + e; }
+  const since = seoulDay(1).replace(/(\d{4})(\d\d)/, "$1-$2-");
+  for (const [key, id] of [["cpi", 10], ["jobs", 50]]) {
+    try {
+      const r = await fetch(`https://api.stlouisfed.org/fred/release/dates?release_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&realtime_start=${since}&sort_order=asc&limit=24`);
+      for (const x of (await r.json()).release_dates || []) out[key].push(x.date);
+    } catch {}
+  }
+  for (const k of ["fomc", "cpi", "jobs"]) out[k] = [...new Set(out[k])].filter(d => d >= since).sort();
+  if (out.fomc.length || out.cpi.length || out.jobs.length) await env.DATA.put("events.json", JSON.stringify(out));
+  return out;
+}
+
 async function updateSlow(env) {
   if (await env.DATA.get("slow:lock")) return "받는 중";
   await env.DATA.put("slow:lock", "1", { expirationTtl: 300 });
@@ -69,9 +117,6 @@ async function updateSlow(env) {
     `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json&sort_order=desc${extra}`;
   const jobs = FRED_IDS.map(id => [`fred/${id}.json`, fred(id, "&limit=2700")]);
   jobs.push(["fred/CPIAUCSL_pc1.json", fred("CPIAUCSL", "&limit=40&units=pc1")]);
-  // 발표 일정 (오늘부터 앞으로): CPI 10, 고용보고서 50, FOMC 발표 101 — 앱의 미장 주요 일정
-  const rel = id => `https://api.stlouisfed.org/fred/release/dates?release_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&realtime_start=${seoulDay(1).replace(/(\d{4})(\d\d)/, "$1-$2-")}&sort_order=asc&limit=60`;
-  for (const id of [10, 50, 101]) jobs.push([`fred/rel_${id}.json`, rel(id)]);
   // ECOS: 일별 50일, 월별 26달 (1년 전의 전년비까지)
   const today = seoulDay(), d50 = seoulDay(50), mon = today.slice(0, 6), m26 = seoulDay(800).slice(0, 6);
   const ecos = (t, c, a, b, item) =>
@@ -84,13 +129,14 @@ async function updateSlow(env) {
   jobs.push(["ecos/deposit.json", ecos("121Y002", "M", m26, mon, "BEABAA211")]); // 예금은행 정기예금 평균 금리(신규)
   let ok = 0;
   if ((await updateKrx(env)).startsWith("ok")) ok++;
+  await updateEvents(env);
   for (const [key, url] of jobs) {
     try {
       const r = await fetch(url);
       if (!r.ok) continue;
       const text = await r.text();
       // FRED는 observations, ECOS는 row가 있어야 정상 (오류도 200으로 옴)
-      if (!text.includes(key.includes("rel_") ? '"release_dates"' : key.startsWith("fred") ? '"observations"' : '"row"')) continue;
+      if (!text.includes(key.startsWith("fred") ? '"observations"' : '"row"')) continue;
       await env.DATA.put(key, text);
       ok++;
     } catch {}
@@ -126,6 +172,11 @@ export default {
         await env.DATA.put("hist:" + h[1], text, { expirationTtl: 10 * 86400 });
       }
       return json(text, 86400);
+    }
+    if (path === "/events.json") {
+      let text = await env.DATA.get("events.json", { cacheTtl: 300 });
+      if (!text) text = JSON.stringify(await updateEvents(env));
+      return json(text, 3600);
     }
     if (!/^\/(fred|ecos|krx)\/[\w.-]+\.json$/.test(path)) return new Response("없음", { status: 404 });
     {
