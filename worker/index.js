@@ -69,6 +69,9 @@ async function updateSlow(env) {
     `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json&sort_order=desc${extra}`;
   const jobs = FRED_IDS.map(id => [`fred/${id}.json`, fred(id, "&limit=2700")]);
   jobs.push(["fred/CPIAUCSL_pc1.json", fred("CPIAUCSL", "&limit=40&units=pc1")]);
+  // 발표 일정 (오늘부터 앞으로): CPI 10, 고용보고서 50, FOMC 발표 101 — 앱의 미장 주요 일정
+  const rel = id => `https://api.stlouisfed.org/fred/release/dates?release_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json&include_release_dates_with_no_data=true&realtime_start=${seoulDay(1).replace(/(\d{4})(\d\d)/, "$1-$2-")}&sort_order=asc&limit=60`;
+  for (const id of [10, 50, 101]) jobs.push([`fred/rel_${id}.json`, rel(id)]);
   // ECOS: 일별 50일, 월별 26달 (1년 전의 전년비까지)
   const today = seoulDay(), d50 = seoulDay(50), mon = today.slice(0, 6), m26 = seoulDay(800).slice(0, 6);
   const ecos = (t, c, a, b, item) =>
@@ -87,7 +90,7 @@ async function updateSlow(env) {
       if (!r.ok) continue;
       const text = await r.text();
       // FRED는 observations, ECOS는 row가 있어야 정상 (오류도 200으로 옴)
-      if (!text.includes(key.startsWith("fred") ? '"observations"' : '"row"')) continue;
+      if (!text.includes(key.includes("rel_") ? '"release_dates"' : key.startsWith("fred") ? '"observations"' : '"row"')) continue;
       await env.DATA.put(key, text);
       ok++;
     } catch {}
