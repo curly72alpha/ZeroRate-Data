@@ -110,7 +110,12 @@ export default {
       // 크론이 빠져 6시간 넘게 낡았으면 뒤에서 다시 받음 (지금 응답은 있는 것으로)
       const at = Number((await env.DATA.get("slow:at")) || 0);
       if (Date.now() - at > 6 * 3600000) ctx.waitUntil(updateSlow(env));
-      const text = await env.DATA.get(path.slice(1), { cacheTtl: 300 });
+      let text = await env.DATA.get(path.slice(1), { cacheTtl: 300 });
+      // 새로 추가한 자료처럼 KV에 아직 없으면 그 자리에서 한 번 받아 둠 (크론을 기다리지 않음)
+      if (!text) {
+        await updateSlow(env);
+        text = await env.DATA.get(path.slice(1));
+      }
       if (text) return json(text, 600);
     }
     const r = await fetch(GITHUB + path, { cf: { cacheTtl: 600, cacheEverything: true } });

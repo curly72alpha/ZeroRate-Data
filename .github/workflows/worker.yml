@@ -52,5 +52,6 @@ jobs:
           sleep 40
           curl -sf "$url/fred/UNRATE.json" | jq -r '"FRED 실업률 \(.observations[0].date)"'
           curl -sf "$url/fred/VIXCLS.json" | jq -r '"FRED VIX \(.observations[0].date) (\(.observations | length)개)"'
+          curl -sf "$url/ecos/deposit.json" | jq -r '"ECOS 정기예금 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개"'
