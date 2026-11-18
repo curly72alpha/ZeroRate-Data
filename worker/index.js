@@ -123,6 +123,25 @@ async function updateEvents(env) {
   return out;
 }
 
+// S&P500 10년: FRED가 2026-11부터 최근 1년만 줌 → CBOE 일별 종가(1975~, 1.7MB)의 끝부분만 글자로 잘라 FRED 모양으로 저장
+//   (JSON 전체를 풀면 무료 CPU 10ms를 넘을 수 있음). 실패하면 FRED 것(1년) 그대로.
+async function updateSp500(env) {
+  try {
+    const text = await fetch("https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json").then(r => r.text());
+    const tail = text.slice(-500000);
+    const obs = [];
+    for (const m of tail.matchAll(/"date": ?"(\d{4}-\d\d-\d\d)"[^}]*?"close": ?"([\d.]+)"/g)) {
+      if (Number(m[2]) > 0) obs.push(`{"date":"${m[1]}","value":"${Number(m[2]).toFixed(2)}"}`);
+    }
+    if (obs.length < 2000) return `짧음 ${obs.length}`;
+    const desc = obs.slice(-2700).reverse();
+    await env.DATA.put("fred/SP500.json", `{"source":"CBOE","observations":[${desc.join(",")}]}`);
+    return `ok ${desc.length}`;
+  } catch (e) {
+    return "error " + e;
+  }
+}
+
 async function updateSlow(env) {
   if (await env.DATA.get("slow:lock")) return "받는 중";
   await env.DATA.put("slow:lock", "1", { expirationTtl: 300 });
@@ -154,6 +173,7 @@ async function updateSlow(env) {
       ok++;
     } catch {}
   }
+  await updateSp500(env); // FRED SP500(1년)을 CBOE 10년으로 덮어씀
   if (ok > 0) await env.DATA.put("slow:at", String(Date.now()));
   return `${ok}/${jobs.length + 1}`;
 }

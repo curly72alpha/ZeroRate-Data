@@ -43,7 +43,9 @@ jobs:
           printf '%s' "${{ secrets.DATA_GO_KR_KEY }}" | npx -y wrangler@4 secret put DATA_GO_KR_KEY
       - name: 일정 새로 받게 (배포한 코드로)
         working-directory: worker
-        run: npx -y wrangler@4 kv key delete events.json --binding DATA --remote || true
+        run: |
+          npx -y wrangler@4 kv key delete events.json --binding DATA --remote || true
+          npx -y wrangler@4 kv key delete slow:at --binding DATA --remote || true   # 다음 요청 때 FRED·CBOE를 새 코드로 다시 받게
       - name: 확인
         run: |
           sub=$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
@@ -56,6 +58,7 @@ jobs:
           sleep 40
           curl -sf "$url/fred/UNRATE.json" | jq -r '"FRED 실업률 \(.observations[0].date)"'
           curl -sf "$url/fred/DFII10.json" | jq -r '"FRED 실질금리 \(.observations[0].date) \(.observations[0].value)"' || true
+          curl -sf "$url/fred/SP500.json" | jq -r '"S&P500 \(.source // "FRED") \(.observations | length)개 \(.observations[0].date)~\(.observations[-1].date)"' || true
           curl -sf "$url/fred/VIXCLS.json" | jq -r '"FRED VIX \(.observations[0].date) (\(.observations | length)개)"'
           curl -sf "$url/ecos/deposit.json" | jq -r '"ECOS 정기예금 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
