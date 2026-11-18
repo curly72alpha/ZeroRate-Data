@@ -4,7 +4,7 @@ compatibility_date = "2026-11-01"
 workers_dev = true
 
 [triggers]
-crons = ["1 * * * *", "6 * * * *", "16 * * * *", "31 */3 * * *"]  # 마지막: FRED·ECOS
+crons = ["1,6,16 * * * *", "31 */3 * * *", "41 4-9 * * 1-5"]  # 환율 · FRED·ECOS·KRX · KRX 금 종가 공개 시각(평일 한국 13:41~18:41)
 
 [[kv_namespaces]]
 binding = "DATA"

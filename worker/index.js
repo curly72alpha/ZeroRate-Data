@@ -36,6 +36,17 @@ async function updateRates(env) {
 const FRED_IDS = ["UNRATE", "DGS2", "DFEDTARU", "DFEDTARL", "T10Y2Y", "SP500", "NASDAQQGLDI", "DEXKOUS",
   "A191RL1Q225SBEA", "DTWEXBGS", "WALCL", "VIXCLS"];
 const SLOW_CRON = "31 */3 * * *";
+// KRX 금 종가는 다음 영업일 오후 1시쯤 공개 → 평일 13:41~18:41(한국) 매시 확인, 전 영업일 종가가 이미 있으면 건너뜀
+const KRX_CRON = "41 4-9 * * 1-5";
+async function krxIfMissing(env) {
+  let back = 1;
+  const wd = new Date(Date.now() + 9 * 3600000).getUTCDay();
+  if (wd === 1) back = 3; // 월요일이면 금요일 종가
+  const want = seoulDay(back);
+  const have = await env.DATA.get("krx/gold.json");
+  if (have && have.includes(`"basDt":"${want}"`)) return "있음";
+  return updateKrx(env);
+}
 
 /** 한국 시각 날짜 (n일 전) → YYYYMMDD */
 function seoulDay(daysAgo = 0) {
@@ -153,7 +164,7 @@ const json = (body, maxAge) => new Response(body, {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(event.cron === SLOW_CRON ? updateSlow(env) : updateRates(env));
+    ctx.waitUntil(event.cron === SLOW_CRON ? updateSlow(env) : event.cron === KRX_CRON ? krxIfMissing(env) : updateRates(env));
   },
   async fetch(req, env, ctx) {
     const path = new URL(req.url).pathname;
