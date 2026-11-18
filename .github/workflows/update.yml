@@ -1,10 +1,10 @@
-# ZeroRate 앱이 읽는 자료를 받아 data 브랜치에 JSON으로 올림. 키는 이 저장소 Secret에만 있고 앱에는 없음.
-#  - 환율(OXR)은 Cloudflare Worker(worker/)가 맡음 — 여기선 예전 앱을 위해 Worker 것을 복사만(OXR 안 부름)
-#  - FRED·ECOS·KRX 금: 3시간마다 (대부분 하루 1번 바뀌는 자료) — 그 사이엔 이전 파일 유지
+# 예전 앱(지인 폰, GitHub 주소만 읽음)을 위한 사본 만들기.
+# 자료는 모두 Cloudflare Worker가 받고(키도 Worker에만), 여기서는 Worker 것을 복사만 함 — API를 직접 부르지 않음(11-18).
+# GitHub 예약은 몇 시간씩 빠질 수 있어 지인 앱은 조금 늦을 수 있음. 이 작업을 멈추면 지인 앱만 자료가 끊김.
 name: update
 on:
   schedule:
-    - cron: "17 * * * *"  # 3시간 칸마다 한 번 받음 (예약이 빠져도 다음 시간에 메움)
+    - cron: "17 */3 * * *"
   workflow_dispatch:
 permissions:
   contents: write
@@ -12,88 +12,26 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: 이전 자료 가져오기
-        run: |
-          git clone -q --depth 1 -b data "https://github.com/${{ github.repository }}.git" out || mkdir -p out
-          rm -rf out/.git
-          rm -f out/oxr_try.txt
-          mkdir -p out/historical out/fred out/ecos out/krx
-
-      - name: 환율 사본 (예전 앱용 — Worker에서 복사, OXR은 부르지 않음)
+      - name: Worker 자료 복사
         run: |
           W=https://zerorate.curly72alpha.workers.dev
-          curl -sf "$W/latest.json" -o out/latest.json.new && mv out/latest.json.new out/latest.json && echo "CHANGED=1" >> "$GITHUB_ENV" || true
-          rm -f out/historical/*.json
-          for d in 29 30 31; do
-            day=$(date -u -d "-$d day" +%F)
-            curl -sf "$W/historical/$day.json" -o "out/historical/$day.json" || rm -f "out/historical/$day.json"
-          done
-
-      - name: 금리·시장·금 (3시간마다, 파일이 없으면 바로)
-        env:
-          FRED: ${{ secrets.FRED_API_KEY }}
-          ECOS: ${{ secrets.ECOS_API_KEY }}
-          GOV: ${{ secrets.DATA_GO_KR_KEY }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          hour=$(date -u +%H)
-          due=false
-          slot=$(date -u +%Y%m%d)$((10#$hour / 3))
-          [ "$(cat out/slow_slot.txt 2>/dev/null)" != "$slot" ] && due=true   # 3시간 칸마다 한 번
-          [ "$FORCE" = "true" ] && due=true
-          [ -s out/krx/gold.json ] || due=true
-          $due || { echo "이번 칸은 이미 받음"; exit 0; }
-          echo "$slot" > out/slow_slot.txt
-          echo "CHANGED=1" >> "$GITHUB_ENV"
-
-          # FRED: 최신순 2700개 (앱이 필요한 만큼 잘라 씀)
-          for id in UNRATE DGS2 DFEDTARU DFEDTARL T10Y2Y SP500 NASDAQQGLDI DEXKOUS A191RL1Q225SBEA DTWEXBGS WALCL VIXCLS; do
-            curl -sf "https://api.stlouisfed.org/fred/series/observations?series_id=$id&api_key=$FRED&file_type=json&sort_order=desc&limit=2700" \
-              -o "out/fred/$id.json.new" && mv "out/fred/$id.json.new" "out/fred/$id.json" || echo "FRED $id 실패"
-          done
-          curl -sf "https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL&api_key=$FRED&file_type=json&sort_order=desc&limit=40&units=pc1" \
-            -o out/fred/CPIAUCSL_pc1.json.new && mv out/fred/CPIAUCSL_pc1.json.new out/fred/CPIAUCSL_pc1.json || echo "FRED CPI 실패"
-
-          # ECOS: 일별 50일, 월별 26달
-          today=$(TZ=Asia/Seoul date +%Y%m%d)
-          d50=$(TZ=Asia/Seoul date -d "-50 day" +%Y%m%d)
-          mon=$(TZ=Asia/Seoul date +%Y%m)
-          m17=$(TZ=Asia/Seoul date -d "-800 day" +%Y%m)   # 26달: 1년 전의 전년비까지
-          ecos() {  # 표 주기 시작 끝 항목 파일
-            curl -sf "https://ecos.bok.or.kr/api/StatisticSearch/$ECOS/json/kr/1/100/$1/$2/$3/$4/$5" -o "out/ecos/$6.new" \
-              && grep -q '"row"' "out/ecos/$6.new" && mv "out/ecos/$6.new" "out/ecos/$6" || { rm -f "out/ecos/$6.new"; echo "ECOS $6 실패"; }
-          }
-          ecos 722Y001 D "$d50" "$today" 0101000 base.json
-          ecos 817Y002 D "$d50" "$today" 010200000 y3.json
-          ecos 817Y002 D "$d50" "$today" 010210000 y10.json
-          ecos 901Y009 M "$m17" "$mon" 0 cpi.json
-          ecos 722Y001 M "$m17" "$mon" 0101000 base_m.json   # 기준금리 월별 (1년 전 비교)
-          ecos 121Y002 M "$m17" "$mon" BEABAA211 deposit.json   # 정기예금 평균 금리(신규)
-
-          # KRX 금시장 (공공데이터포털): 최근 10년, 1000개씩 쪽을 넘겨 한 파일로 합침
-          from=$(date -u -d "-10 year" +%Y%m%d)
-          rm -f /tmp/krx_*.json
-          for no in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            curl -sf "https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=$GOV&resultType=json&numOfRows=1000&pageNo=$no&beginBasDt=$from" -o "/tmp/krx_$no.json" || break
-            n=$(jq '[.response.body.items.item] | flatten | length' "/tmp/krx_$no.json" 2>/dev/null || echo 0)
-            [ "$n" -gt 0 ] || { rm -f "/tmp/krx_$no.json"; break; }
-            [ "$n" -lt 1000 ] && break
-          done
-          if ls /tmp/krx_*.json >/dev/null 2>&1; then
-            jq -s '{response:{body:{items:{item:([.[].response.body.items.item] | flatten)}}}} | .response.body.totalCount = (.response.body.items.item | length)' \
-              /tmp/krx_*.json > out/krx/gold.json.new && mv out/krx/gold.json.new out/krx/gold.json
-          else
-            echo "KRX 실패"
-          fi
+          mkdir -p out/historical out/fred out/ecos out/krx
+          get() { curl -sf "$W/$1" -o "out/$1.new" && jq -e . "out/$1.new" >/dev/null && mv "out/$1.new" "out/$1" || rm -f "out/$1.new"; }
+          get latest.json
+          for d in 29 30 31; do get "historical/$(date -u -d "-$d day" +%F).json"; done
+          for id in UNRATE DGS2 DFEDTARU DFEDTARL T10Y2Y SP500 NASDAQQGLDI DEXKOUS A191RL1Q225SBEA DTWEXBGS WALCL VIXCLS CPIAUCSL_pc1; do get "fred/$id.json"; done
+          for f in base y3 y10 cpi base_m deposit; do get "ecos/$f.json"; done
+          get krx/gold.json
+          ls -R out | head -50
 
       - name: 올리기
-        if: env.CHANGED == '1'
         run: |
+          [ -s out/latest.json ] || { echo "Worker 자료 없음"; exit 1; }
           cd out
           git init -q -b data
           git config user.name "zerorate-bot"
           git config user.email "zerorate-bot@users.noreply.github.com"
           git add -A
-          git commit -qm "update $(date -u +%FT%TZ)"
+          git commit -qm "copy $(date -u +%FT%TZ)"
           # 기록을 쌓지 않고 한 커밋만 유지
           git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data

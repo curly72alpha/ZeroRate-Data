@@ -4,9 +4,8 @@
 // - 30일 전 환율(historical): 처음 찾을 때 OXR에서 한 번 받아 KV에 둠(28~32일 전 날짜만, 하루 1회꼴).
 // - FRED·ECOS: 크론 3시간마다(매 3시 31분) 직접 받아 KV에 둠. 크론이 빠져 6시간 넘게 낡으면 다음 요청 때 뒤에서 다시 받음.
 //   KV에 없으면 GitHub 중계 것을 넘겨줌. (GitHub 예약 실행은 몇 시간씩 빠져서 11-17 옮김)
-// - KRX 금은 GitHub 중계(update.yml)를 그대로 넘겨줌(쪽을 합치는 일이 Worker 무료 CPU에 부담, 자료도 하루 늦음).
-// 앱은 이 주소 하나만 읽고, 키는 이 Worker의 Secret(OXR_APP_ID·FRED_API_KEY·ECOS_API_KEY)과 GitHub Secret에만 있음.
-const GITHUB = "https://raw.githubusercontent.com/curly72alpha/ZeroRate-Data/data";
+// - KRX 금(공공데이터포털)도 같은 크론에서 받음(쪽을 글자로 이어 붙여 CPU 아낌). GitHub 중계는 쓰지 않음(11-18).
+// 앱은 이 주소 하나만 읽고, 키는 이 Worker의 Secret(OXR_APP_ID·FRED_API_KEY·ECOS_API_KEY·DATA_GO_KR_KEY)과 GitHub Secret에만 있음.
 
 const hourOf = (ts) => Math.floor(ts / 3600);
 
@@ -62,6 +61,21 @@ async function updateSlow(env) {
   jobs.push(["ecos/base_m.json", ecos("722Y001", "M", m26, mon, "0101000")]);
   jobs.push(["ecos/deposit.json", ecos("121Y002", "M", m26, mon, "BEABAA211")]); // 예금은행 정기예금 평균 금리(신규)
   let ok = 0;
+  // KRX 금(공공데이터포털): 최근 10년을 1000개씩 받아 한 파일로 — JSON을 풀지 않고 글자로 이어 붙임(무료 CPU 10ms 안)
+  try {
+    const from = seoulDay(3653);
+    const krx = no => `https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=${env.DATA_GO_KR_KEY}&resultType=json&numOfRows=1000&pageNo=${no}&beginBasDt=${from}`;
+    const first = await fetch(krx(1)).then(r => r.text());
+    const total = Number((first.match(/"totalCount"\s*:\s*(\d+)/) || [])[1] || 0);
+    const items = t => { const a = t.indexOf('"item":['); const b = t.lastIndexOf("]"); return a < 0 || b <= a ? "" : t.slice(a + 8, b).trim(); };
+    const parts = [items(first)];
+    for (let no = 2; no <= Math.ceil(total / 1000) && no <= 12; no++) parts.push(items(await fetch(krx(no)).then(r => r.text())));
+    const body = parts.filter(Boolean).join(",");
+    if (total > 0 && body) {
+      await env.DATA.put("krx/gold.json", `{"response":{"body":{"totalCount":${total},"items":{"item":[${body}]}}}}`);
+      ok++;
+    }
+  } catch {}
   for (const [key, url] of jobs) {
     try {
       const r = await fetch(url);
@@ -74,7 +88,7 @@ async function updateSlow(env) {
     } catch {}
   }
   if (ok > 0) await env.DATA.put("slow:at", String(Date.now()));
-  return `${ok}/${jobs.length}`;
+  return `${ok}/${jobs.length + 1}`;
 }
 
 const json = (body, maxAge) => new Response(body, {
@@ -106,7 +120,7 @@ export default {
       return json(text, 86400);
     }
     if (!/^\/(fred|ecos|krx)\/[\w.-]+\.json$/.test(path)) return new Response("없음", { status: 404 });
-    if (!path.startsWith("/krx/")) {
+    {
       // 크론이 빠져 6시간 넘게 낡았으면 뒤에서 다시 받음 (지금 응답은 있는 것으로)
       const at = Number((await env.DATA.get("slow:at")) || 0);
       if (Date.now() - at > 6 * 3600000) ctx.waitUntil(updateSlow(env));
@@ -118,7 +132,6 @@ export default {
       }
       if (text) return json(text, 600);
     }
-    const r = await fetch(GITHUB + path, { cf: { cacheTtl: 600, cacheEverything: true } });
-    return r.ok ? json(r.body, 600) : new Response("없음", { status: r.status });
+    return new Response("없음", { status: 503 });
   },
 };

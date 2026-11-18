@@ -40,6 +40,7 @@ jobs:
           printf '%s' "${{ secrets.OXR_APP_ID }}" | npx -y wrangler@4 secret put OXR_APP_ID
           printf '%s' "${{ secrets.FRED_API_KEY }}" | npx -y wrangler@4 secret put FRED_API_KEY
           printf '%s' "${{ secrets.ECOS_API_KEY }}" | npx -y wrangler@4 secret put ECOS_API_KEY
+          printf '%s' "${{ secrets.DATA_GO_KR_KEY }}" | npx -y wrangler@4 secret put DATA_GO_KR_KEY
       - name: 확인
         run: |
           sub=$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
@@ -54,4 +55,4 @@ jobs:
           curl -sf "$url/fred/VIXCLS.json" | jq -r '"FRED VIX \(.observations[0].date) (\(.observations | length)개)"'
           curl -sf "$url/ecos/deposit.json" | jq -r '"ECOS 정기예금 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
-          curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개"'
+          curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개, 받은 것 \(.response.body.items.item | length)개"'
