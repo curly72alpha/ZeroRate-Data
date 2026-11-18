@@ -60,6 +60,7 @@ async function updateSlow(env) {
   jobs.push(["ecos/y10.json", ecos("817Y002", "D", d50, today, "010210000")]);
   jobs.push(["ecos/cpi.json", ecos("901Y009", "M", m26, mon, "0")]);
   jobs.push(["ecos/base_m.json", ecos("722Y001", "M", m26, mon, "0101000")]);
+  jobs.push(["ecos/deposit.json", ecos("121Y002", "M", m26, mon, "BEABAA211")]); // 예금은행 정기예금 평균 금리(신규)
   let ok = 0;
   for (const [key, url] of jobs) {
     try {
