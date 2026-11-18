@@ -34,7 +34,7 @@ async function updateRates(env) {
 
 // FRED: 최신순 2700개 (앱이 필요한 만큼 잘라 씀), 물가는 1년 전 대비 % 40개
 const FRED_IDS = ["UNRATE", "DGS2", "DFEDTARU", "DFEDTARL", "T10Y2Y", "SP500", "NASDAQQGLDI", "DEXKOUS",
-  "A191RL1Q225SBEA", "DTWEXBGS", "WALCL", "VIXCLS"];
+  "A191RL1Q225SBEA", "DTWEXBGS", "WALCL", "VIXCLS", "DFII10"];
 const SLOW_CRON = "31 */3 * * *";
 // KRX 금 종가는 다음 영업일 오후 1시쯤 공개 → 평일 13:41~18:41(한국) 매시 확인, 전 영업일 종가가 이미 있으면 건너뜀
 const KRX_CRON = "41 4-9 * * 1-5";
