@@ -142,6 +142,54 @@ async function updateSp500(env) {
   }
 }
 
+// 자료 검사 → health.json {at, problems: ["S&P500: …", …]} — 앱 상식 맨 위에 주황 줄로
+//   개수가 평소보다 크게 줄었는지, 마지막 날짜가 너무 오래됐는지 (JSON을 풀지 않고 글자로만 봄)
+const HEALTH = [
+  // [KV 키, 이름, 최소 개수, 허용 지연(일)]
+  ["fred/SP500.json", "S&P500", 2000, 6], ["fred/VIXCLS.json", "VIX 기록", 2000, 6],
+  ["fred/NASDAQQGLDI.json", "금 지수", 2000, 7], ["fred/DEXKOUS.json", "원/달러 기록", 2000, 10],
+  ["fred/DGS2.json", "미국 2년물", 2000, 7], ["fred/T10Y2Y.json", "장단기 금리차", 2000, 7],
+  ["fred/DFII10.json", "실질금리", 2000, 7], ["fred/DTWEXBGS.json", "달러지수", 2000, 12],
+  ["fred/DFEDTARU.json", "미국 기준금리", 100, 10], ["fred/UNRATE.json", "실업률", 100, 75],
+  ["fred/CPIAUCSL_pc1.json", "미국 물가", 20, 75], ["fred/WALCL.json", "연준 자산", 100, 21],
+  ["fred/A191RL1Q225SBEA.json", "GDP", 20, 200],
+];
+const daysSince = ymd => (Date.now() - Date.parse(ymd.length === 6 ? `${ymd.slice(0, 4)}-${ymd.slice(4)}-01` : ymd.length === 8 ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}` : ymd)) / 86400000;
+async function checkHealth(env) {
+  const problems = [];
+  try {
+    for (const [key, name, min, late] of HEALTH) {
+      const t = await env.DATA.get(key);
+      if (!t) { problems.push(`${name}: 자료 없음`); continue; }
+      const n = t.split('"date"').length - 1 - (t.split('"value":"."').length - 1);
+      const last = (t.match(/"date":\s*"(\d{4}-\d\d-\d\d)"/) || [])[1];
+      if (n < min) problems.push(`${name}: 자료가 ${n}개뿐 (평소 ${min}개 넘음)`);
+      else if (!last || daysSince(last) > late) problems.push(`${name}: ${last || "?"} 뒤로 새 자료 없음`);
+    }
+    for (const [key, name, late] of [["ecos/base.json", "한국 기준금리", 12], ["ecos/y3.json", "국고채 3년", 12],
+      ["ecos/cpi.json", "한국 물가", 75], ["ecos/deposit.json", "정기예금 금리", 75]]) {
+      const t = await env.DATA.get(key);
+      const times = [...(t || "").matchAll(/"TIME":"(\d{6,8})"/g)].map(m => m[1]).sort();
+      const last = times[times.length - 1];
+      if (!last) problems.push(`${name}: 자료 없음`);
+      else if (daysSince(last) > late + (last.length === 6 ? 31 : 0)) problems.push(`${name}: ${last} 뒤로 새 자료 없음`);
+    }
+    const k = await env.DATA.get("krx/gold.json");
+    const kd = [...(k || "").matchAll(/"basDt":"(\d{8})"/g)].map(m => m[1]).sort().pop();
+    if (!kd) problems.push("KRX 금: 자료 없음");
+    else if (daysSince(kd) > 6) problems.push(`KRX 금: ${kd.slice(0, 4)}-${kd.slice(4, 6)}-${kd.slice(6)} 뒤로 새 자료 없음`);
+    const r = await env.DATA.get("latest.json");
+    const ts = Number((r || "").match(/"timestamp":\s*(\d+)/)?.[1] || 0);
+    if (Date.now() / 1000 - ts > 3 * 3600) problems.push("환율: 3시간 넘게 새 자료 없음");
+    const ev = await env.DATA.get("events.json");
+    if (!ev || !/"fomc":\["\d/.test(ev)) problems.push("미장 일정: 연준 일정표를 못 읽음 (앱에 적어 둔 목록 사용 중)");
+  } catch (e) {
+    problems.push("검사 오류: " + e);
+  }
+  await env.DATA.put("health.json", JSON.stringify({ at: new Date().toISOString(), problems }));
+  return problems;
+}
+
 async function updateSlow(env) {
   if (await env.DATA.get("slow:lock")) return "받는 중";
   await env.DATA.put("slow:lock", "1", { expirationTtl: 300 });
@@ -175,6 +223,7 @@ async function updateSlow(env) {
   }
   await updateSp500(env); // FRED SP500(1년)을 CBOE 10년으로 덮어씀
   if (ok > 0) await env.DATA.put("slow:at", String(Date.now()));
+  await checkHealth(env);
   return `${ok}/${jobs.length + 1}`;
 }
 
@@ -205,6 +254,11 @@ export default {
         await env.DATA.put("hist:" + h[1], text, { expirationTtl: 10 * 86400 });
       }
       return json(text, 86400);
+    }
+    if (path === "/health.json") {
+      let text = await env.DATA.get("health.json", { cacheTtl: 300 });
+      if (!text) text = JSON.stringify({ problems: await checkHealth(env) });
+      return json(text, 600);
     }
     if (path === "/events.json") {
       let text = await env.DATA.get("events.json", { cacheTtl: 300 });
