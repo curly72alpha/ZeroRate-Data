@@ -57,7 +57,7 @@ function seoulDay(daysAgo = 0) {
 }
 
 // KRX 금(공공데이터포털): 최근 10년을 1000개씩 받아 한 파일로 — JSON을 풀지 않고 글자로 이어 붙임(무료 CPU 10ms 안)
-async function updateKrx(env) {
+async function fullKrx(env) {
   try {
     const from = seoulDay(3653);
     const krx = no => `https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=${env.DATA_GO_KR_KEY}&resultType=json&numOfRows=1000&pageNo=${no}&beginBasDt=${from}`;
@@ -73,6 +73,46 @@ async function updateKrx(env) {
   } catch (e) {
     return "error " + e;
   }
+}
+
+// KRX 금도 쌓아 두고 새 날짜만 붙임: 저장된 마지막 basDt 다음 날부터 한 번 요청 (여러 쪽 중 하나만 실패해도 짧게 덮이던 문제)
+//   저장 없음·2,000개 미만·4,500개 넘음(10년치로 다시 줄이기)·마지막 날 60일 넘게 지남 → 전체
+async function updateKrx(env) {
+  try {
+    const have = await env.DATA.get("krx/gold.json");
+    const total = Number(have?.match(/"totalCount":(\d+)/)?.[1] || 0);
+    const last = [...(have || "").matchAll(/"basDt":"(\d{8})"/g)].map(m => m[1]).sort().pop();
+    if (!have || total < 2000 || total > 4500 || !last || daysSince(last) > 60) return fullKrx(env);
+    const next = new Date(Date.UTC(+last.slice(0, 4), +last.slice(4, 6) - 1, +last.slice(6)) + 86400000).toISOString().slice(0, 10).replaceAll("-", "");
+    const t = await fetch(`https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=${env.DATA_GO_KR_KEY}&resultType=json&numOfRows=1000&pageNo=1&beginBasDt=${next}`).then(r => r.text());
+    const add = Number(t.match(/"totalCount"\s*:\s*(\d+)/)?.[1] || 0);
+    const a = t.indexOf('"item":['), b = t.lastIndexOf("]");
+    const items = a < 0 || b <= a ? "" : t.slice(a + 8, b).trim();
+    if (!add || !items) return "새 자료 없음";
+    const at = have.indexOf('"item":[') + 8;
+    await env.DATA.put("krx/gold.json", have.slice(0, at).replace(/"totalCount":\d+/, `"totalCount":${total + add}`) + items + "," + have.slice(at));
+    return `ok 붙임 ${add}`;
+  } catch (e) {
+    return "error " + e;
+  }
+}
+
+// FRED 일별 시장 자료(10년 그래프·금값 이유에 씀)도 쌓아 두고 새 날짜만 앞에 붙임 — FRED가 S&P500처럼 기간을 줄여도 안 줄어듦.
+//   월·분기 자료(물가·실업률·GDP)는 나중에 고쳐 발표되므로 매번 전체로 받음
+const FRED_DAILY = ["DGS2", "T10Y2Y", "DEXKOUS", "DTWEXBGS", "VIXCLS", "DFII10", "NASDAQQGLDI", "DFEDTARU", "DFEDTARL"];
+async function mergeFred(env, id, url) {
+  const key = `fred/${id}.json`;
+  const have = await env.DATA.get(key);
+  const at = have ? have.indexOf('"observations":[') : -1;
+  const last = have?.match(/"date":"(\d{4}-\d\d-\d\d)"/)?.[1];
+  if (at < 0 || !last || daysSince(last) > 30 || have.length < 20000) return null; // 전체로
+  const r = await fetch(`${url}&observation_start=${last}`);
+  if (!r.ok) return "실패";
+  const fresh = ((await r.json()).observations || []).filter(o => o.date > last).map(o => JSON.stringify(o));
+  if (!fresh.length) return "새 자료 없음";
+  const p = at + '"observations":['.length;
+  await env.DATA.put(key, have.slice(0, p) + fresh.join(",") + "," + have.slice(p));
+  return `붙임 ${fresh.length}`;
 }
 
 // 미장 주요 일정 → events.json {fomc, cpi, jobs: ["YYYY-MM-DD", …]} (앱은 받은 날짜를 쓰고, 그 뒤는 앱에 넣어 둔 목록)
@@ -332,6 +372,11 @@ async function updateSlow(env) {
   await updateEvents(env);
   for (const [key, url] of jobs) {
     try {
+      const id = key.match(/^fred\/(\w+)\.json$/)?.[1];
+      if (FRED_DAILY.includes(id)) {
+        const m = await mergeFred(env, id, url.replace("&limit=2700", ""));
+        if (m !== null) { if (!m.startsWith("실패")) ok++; continue; }
+      }
       const r = await fetch(url);
       if (!r.ok) continue;
       const text = await r.text();
