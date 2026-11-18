@@ -177,6 +177,8 @@ async function checkHealth(env) {
     const gq = [...((await env.DATA.get("ecos/gdp.json")) || "").matchAll(/"TIME":"(\d{4})Q(\d)"/g)].map(m => `${m[1]}${String(m[2] * 3).padStart(2, "0")}`).sort().pop();
     if (!gq) problems.push("한국 GDP: 자료 없음");
     else if (daysSince(gq) > 200) problems.push(`한국 GDP: ${gq.slice(0, 4)}년 ${Number(gq.slice(4)) / 3}분기 뒤로 새 자료 없음`);
+    const ex = ((await env.DATA.get("exim.json")) || "").match(/"date":"(\d{8})"/)?.[1];
+    if (env.EXIM_API_KEY && (!ex || daysSince(ex) > 5)) problems.push(`수출입은행 환율: ${ex || "자료 없음"}${ex ? " 뒤로 새 자료 없음" : ""}`);
     const k = await env.DATA.get("krx/gold.json");
     const kd = [...(k || "").matchAll(/"basDt":"(\d{8})"/g)].map(m => m[1]).sort().pop();
     if (!kd) problems.push("KRX 금: 자료 없음");
@@ -206,6 +208,32 @@ async function updateKospi(env) {
   } catch (e) {
     return "error " + e;
   }
+}
+
+// 수출입은행 환율(매매기준율·송금 보낼 때·받을 때): 영업일 11시쯤 하루 1번 → exim.json {date, rows}
+//   새 주소 oapi.koreaexim.go.kr (옛 주소 2026-04-30 종료). 11시 전·휴일엔 빈 배열 → 며칠 전까지 거슬러 찾음
+async function updateExim(env, force = false) {
+  if (!env.EXIM_API_KEY) return "키 없음";
+  const kst = new Date(Date.now() + 9 * 3600000);
+  const have = await env.DATA.get("exim.json");
+  const haveDate = (have || "").match(/"date":"(\d{8})"/)?.[1];
+  if (!force && haveDate === seoulDay() ) return "있음";
+  if (!force && have && (kst.getUTCHours() < 11 || [0, 6].includes(kst.getUTCDay()))) return "아직";
+  for (let back = 0; back <= 6; back++) {
+    const day = seoulDay(back);
+    if (haveDate && day <= haveDate) break;
+    try {
+      const text = await fetch(`https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey=${env.EXIM_API_KEY}&searchdate=${day}&data=AP01`).then(r => r.text());
+      if (text.includes('"deal_bas_r"')) {
+        await env.DATA.put("exim.json", `{"date":"${day}","rows":${text}}`);
+        return `ok ${day}`;
+      }
+      if (back === 0 && !text.trim().startsWith("[")) return "이상 " + text.slice(0, 120);
+    } catch (e) {
+      return "error " + e;
+    }
+  }
+  return "새 자료 없음";
 }
 
 async function updateSlow(env) {
@@ -256,7 +284,8 @@ const json = (body, maxAge) => new Response(body, {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(event.cron === SLOW_CRON ? updateSlow(env) : event.cron === KRX_CRON ? krxIfMissing(env) : updateRates(env));
+    ctx.waitUntil(event.cron === SLOW_CRON ? updateSlow(env) : event.cron === KRX_CRON ? krxIfMissing(env)
+      : Promise.all([updateRates(env), updateExim(env)]));
   },
   async fetch(req, env, ctx) {
     const path = new URL(req.url).pathname;
@@ -277,6 +306,11 @@ export default {
         await env.DATA.put("hist:" + h[1], text, { expirationTtl: 10 * 86400 });
       }
       return json(text, 86400);
+    }
+    if (path === "/exim.json") {
+      let text = await env.DATA.get("exim.json", { cacheTtl: 300 });
+      if (!text) { const r = await updateExim(env, true); text = await env.DATA.get("exim.json"); if (!text) return new Response(r, { status: 503 }); }
+      return json(text, 600);
     }
     if (path === "/health.json") {
       let text = await env.DATA.get("health.json", { cacheTtl: 300 });
