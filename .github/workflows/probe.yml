@@ -1,0 +1,13 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          K: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          for t in 200Y102 200Y104 200Y106 901Y027; do
+            echo "== $t"; curl -s "https://ecos.bok.or.kr/api/StatisticItemList/$K/json/kr/1/60/$t" | jq -r '.StatisticItemList.row[]? | "\(.ITEM_CODE) \(.ITEM_NAME) \(.CYCLE) \(.END_TIME)"' | head -40
+          done
+          curl -s "https://ecos.bok.or.kr/api/StatisticTableList/$K/json/kr/1/1000" | jq -r '.StatisticTableList.row[]? | select(.STAT_NAME|test("실업|국내총생산|GDP|경제성장")) | "\(.STAT_CODE) \(.STAT_NAME) \(.CYCLE)"' | head -40
