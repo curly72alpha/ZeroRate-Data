@@ -151,7 +151,7 @@ const HEALTH = [
   ["fred/DGS2.json", "미국 2년물", 2000, 7], ["fred/T10Y2Y.json", "장단기 금리차", 2000, 7],
   ["fred/DFII10.json", "실질금리", 2000, 7], ["fred/DTWEXBGS.json", "달러지수", 2000, 12],
   ["fred/DFEDTARU.json", "미국 기준금리", 100, 10], ["fred/UNRATE.json", "실업률", 100, 75],
-  ["fred/CPIAUCSL_pc1.json", "미국 물가", 20, 75], ["fred/WALCL.json", "연준 자산", 100, 21],
+  ["fred/CPIAUCSL_pc1.json", "미국 물가", 20, 75], ["fred/PCEPI_pc1.json", "미국 PCE 물가", 20, 75], ["fred/WALCL.json", "연준 자산", 100, 21],
   ["fred/A191RL1Q225SBEA.json", "GDP", 20, 200],
 ];
 const daysSince = ymd => (Date.now() - Date.parse(ymd.length === 6 ? `${ymd.slice(0, 4)}-${ymd.slice(4)}-01` : ymd.length === 8 ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}` : ymd)) / 86400000;
@@ -243,6 +243,7 @@ async function updateSlow(env) {
     `https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json&sort_order=desc${extra}`;
   const jobs = FRED_IDS.map(id => [`fred/${id}.json`, fred(id, "&limit=2700")]);
   jobs.push(["fred/CPIAUCSL_pc1.json", fred("CPIAUCSL", "&limit=40&units=pc1")]);
+  jobs.push(["fred/PCEPI_pc1.json", fred("PCEPI", "&limit=40&units=pc1")]); // 연준 물가 목표(2%)의 기준
   // ECOS: 일별 50일, 월별 26달 (1년 전의 전년비까지)
   const today = seoulDay(), d50 = seoulDay(50), mon = today.slice(0, 6), m26 = seoulDay(800).slice(0, 6);
   const ecos = (t, c, a, b, item) =>
