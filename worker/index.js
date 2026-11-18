@@ -111,7 +111,6 @@ export default {
       if (!text) { await updateRates(env); text = await env.DATA.get("latest.json"); }
       return text ? json(text, 60) : new Response("없음", { status: 503 });
     }
-    if (path === "/debug/krx") return new Response(await updateKrx(env)); // 임시 확인
     const h = path.match(/^\/historical\/(\d{4}-\d{2}-\d{2})\.json$/);
     if (h) {
       const ago = (Date.now() - Date.parse(h[1] + "T00:00:00Z")) / 86400000;

@@ -49,7 +49,6 @@ jobs:
           sleep 5
           curl -sf "$url/latest.json" | jq -r '"환율 시각 \(.timestamp | strftime("%F %H:%M UTC"))"'
           curl -sf "$url/historical/$(date -u -d '-30 day' +%F).json" | jq -r '"30일 전 \(.timestamp | strftime("%F"))"'
-          curl -s "$url/debug/krx"; echo
           curl -sf "$url/fred/UNRATE.json" > /dev/null   # 낡았으면 Worker가 뒤에서 FRED·ECOS를 받기 시작
           sleep 40
           curl -sf "$url/fred/UNRATE.json" | jq -r '"FRED 실업률 \(.observations[0].date)"'
