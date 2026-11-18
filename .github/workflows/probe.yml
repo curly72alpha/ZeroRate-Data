@@ -1,8 +1,0 @@
-name: probe
-on: workflow_dispatch
-jobs:
-  p:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          curl -s https://zerorate.curly72alpha.workers.dev/fred/KOSPI.json | jq -r '.observations[:260] | (max_by(.value|tonumber) | "max \(.date) \(.value)"), (.[0] | "last \(.date) \(.value)"), ([.[] | select(.date >= "2026-01-01")] | map("\(.date) \(.value)") | .[0:400:20] | join(" | "))'
