@@ -75,9 +75,11 @@ async function updateEvents(env) {
     const panels = html.split(/>(\d{4}) FOMC Meetings</);
     for (let i = 1; i + 1 < panels.length; i += 2) {
       const year = Number(panels[i]);
-      const re = /fomc-meeting__month[^>]*><strong>([A-Za-z/]+)<\/strong>[\s\S]*?fomc-meeting__date[^>]*>([^<]*)</g;
-      for (const m of panels[i + 1].matchAll(re)) {
-        const d = m[2].trim().match(/^(\d{1,2})-(\d{1,2})\*?$/);   // "17-18*" 만 (표결·임시 회의는 뺌)
+      // 회의 하나씩 (다음 회의 앞까지) — "17-18*" 만, 표결·임시·전략 회의(결정 없음)는 뺌
+      for (const blk of panels[i + 1].split("fomc-meeting__month").slice(1)) {
+        const m = blk.match(/<strong>([A-Za-z/]+)<\/strong>[\s\S]*?fomc-meeting__date[^>]*>([^<]*)</);
+        if (!m || /strategy/i.test(blk)) continue;
+        const d = m[2].trim().match(/^(\d{1,2})-(\d{1,2})\*?$/);
         if (!d) continue;
         const mon = MONTHS.indexOf(m[1].split("/").pop()) + 1;
         if (mon > 0) out.fomc.push(`${year}-${pad(mon)}-${pad(d[2])}`);
