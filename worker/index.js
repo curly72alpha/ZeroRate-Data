@@ -151,7 +151,7 @@ const HEALTH = [
   ["fred/DGS2.json", "미국 2년물", 2000, 7], ["fred/T10Y2Y.json", "장단기 금리차", 2000, 7],
   ["fred/DFII10.json", "실질금리", 2000, 7], ["fred/DTWEXBGS.json", "달러지수", 2000, 12],
   ["fred/DFEDTARU.json", "미국 기준금리", 100, 10], ["fred/UNRATE.json", "실업률", 100, 75],
-  ["fred/CPIAUCSL_pc1.json", "미국 물가", 20, 75], ["fred/PCEPI_pc1.json", "미국 PCE 물가", 20, 75], ["fred/WALCL.json", "연준 자산", 100, 21],
+  ["fred/CPIAUCSL_pc1.json", "미국 물가", 20, 75], ["fred/PCEPI_pc1.json", "미국 PCE 물가", 20, 100], ["fred/WALCL.json", "연준 자산", 100, 21],
   ["fred/A191RL1Q225SBEA.json", "GDP", 20, 200],
 ];
 const daysSince = ymd => (Date.now() - Date.parse(ymd.length === 6 ? `${ymd.slice(0, 4)}-${ymd.slice(4)}-01` : ymd.length === 8 ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6)}` : ymd)) / 86400000;
