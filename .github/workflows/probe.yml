@@ -1,0 +1,11 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
+          curl -s -A "$UA" https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm > f.html; wc -c f.html
+          grep -o 'FOMC Meetings</a>\|fomc-meeting__month[^>]*><strong>[A-Za-z/]*\|fomc-meeting__date[^>]*>[^<]*' f.html | head -40
+          for u in cpi empsit; do curl -s -o b.html -w "$u %{http_code}\n" -A "$UA" -H "Accept-Language: en-US" https://www.bls.gov/schedule/news_release/$u.htm; grep -o '<td>[A-Z][a-z]\{2\}\. [0-9]\{1,2\}, 20[0-9][0-9]</td>' b.html | head -30 | tr '\n' ' '; echo; grep -o '<t[dh][^>]*>[^<]*20[0-9][0-9][^<]*</t[dh]>' b.html | head -8; done
