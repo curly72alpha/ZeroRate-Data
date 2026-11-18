@@ -43,6 +43,25 @@ function seoulDay(daysAgo = 0) {
   return d.toISOString().slice(0, 10).replaceAll("-", "");
 }
 
+// KRX 금(공공데이터포털): 최근 10년을 1000개씩 받아 한 파일로 — JSON을 풀지 않고 글자로 이어 붙임(무료 CPU 10ms 안)
+async function updateKrx(env) {
+  try {
+    const from = seoulDay(3653);
+    const krx = no => `https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=${env.DATA_GO_KR_KEY}&resultType=json&numOfRows=1000&pageNo=${no}&beginBasDt=${from}`;
+    const first = await fetch(krx(1)).then(r => r.text());
+    const total = Number((first.match(/"totalCount"\s*:\s*(\d+)/) || [])[1] || 0);
+    const items = t => { const a = t.indexOf('"item":['); const b = t.lastIndexOf("]"); return a < 0 || b <= a ? "" : t.slice(a + 8, b).trim(); };
+    const parts = [items(first)];
+    for (let no = 2; no <= Math.ceil(total / 1000) && no <= 12; no++) parts.push(items(await fetch(krx(no)).then(r => r.text())));
+    const body = parts.filter(Boolean).join(",");
+    if (!(total > 0 && body)) return `fail total ${total} first ${first.slice(0, 200)}`;
+    await env.DATA.put("krx/gold.json", `{"response":{"body":{"totalCount":${total},"items":{"item":[${body}]}}}}`);
+    return `ok ${total} ${body.length}`;
+  } catch (e) {
+    return "error " + e;
+  }
+}
+
 async function updateSlow(env) {
   if (await env.DATA.get("slow:lock")) return "받는 중";
   await env.DATA.put("slow:lock", "1", { expirationTtl: 300 });
@@ -61,21 +80,7 @@ async function updateSlow(env) {
   jobs.push(["ecos/base_m.json", ecos("722Y001", "M", m26, mon, "0101000")]);
   jobs.push(["ecos/deposit.json", ecos("121Y002", "M", m26, mon, "BEABAA211")]); // 예금은행 정기예금 평균 금리(신규)
   let ok = 0;
-  // KRX 금(공공데이터포털): 최근 10년을 1000개씩 받아 한 파일로 — JSON을 풀지 않고 글자로 이어 붙임(무료 CPU 10ms 안)
-  try {
-    const from = seoulDay(3653);
-    const krx = no => `https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=${env.DATA_GO_KR_KEY}&resultType=json&numOfRows=1000&pageNo=${no}&beginBasDt=${from}`;
-    const first = await fetch(krx(1)).then(r => r.text());
-    const total = Number((first.match(/"totalCount"\s*:\s*(\d+)/) || [])[1] || 0);
-    const items = t => { const a = t.indexOf('"item":['); const b = t.lastIndexOf("]"); return a < 0 || b <= a ? "" : t.slice(a + 8, b).trim(); };
-    const parts = [items(first)];
-    for (let no = 2; no <= Math.ceil(total / 1000) && no <= 12; no++) parts.push(items(await fetch(krx(no)).then(r => r.text())));
-    const body = parts.filter(Boolean).join(",");
-    if (total > 0 && body) {
-      await env.DATA.put("krx/gold.json", `{"response":{"body":{"totalCount":${total},"items":{"item":[${body}]}}}}`);
-      ok++;
-    }
-  } catch {}
+  if ((await updateKrx(env)).startsWith("ok")) ok++;
   for (const [key, url] of jobs) {
     try {
       const r = await fetch(url);
@@ -106,12 +111,7 @@ export default {
       if (!text) { await updateRates(env); text = await env.DATA.get("latest.json"); }
       return text ? json(text, 60) : new Response("없음", { status: 503 });
     }
-    if (path === "/debug/krx") { // 임시 확인
-      const from = seoulDay(3653);
-      const r = await fetch(`https://apis.data.go.kr/1160100/GetGeneralProductInfoService_V2/getGoldPriceInfo_V2?serviceKey=${env.DATA_GO_KR_KEY}&resultType=json&numOfRows=5&pageNo=1&beginBasDt=${from}`);
-      const t = await r.text();
-      return new Response(`status ${r.status} len ${t.length} lock ${await env.DATA.get("slow:lock")} at ${await env.DATA.get("slow:at")} kv ${(await env.DATA.get("krx/gold.json") || "").length}\n` + t.slice(0, 300));
-    }
+    if (path === "/debug/krx") return new Response(await updateKrx(env)); // 임시 확인
     const h = path.match(/^\/historical\/(\d{4}-\d{2}-\d{2})\.json$/);
     if (h) {
       const ago = (Date.now() - Date.parse(h[1] + "T00:00:00Z")) / 86400000;
