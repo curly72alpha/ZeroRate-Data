@@ -127,7 +127,7 @@ async function updateEvents(env) {
 
 // S&P500 10년: FRED가 2026-11부터 최근 1년만 줌 → CBOE 일별 종가(1975~, 1.7MB)의 끝부분만 글자로 잘라 FRED 모양으로 저장
 //   (JSON 전체를 풀면 무료 CPU 10ms를 넘을 수 있음). 실패하면 FRED 것(1년) 그대로.
-async function updateSp500(env) {
+async function fullSp500(env) {
   try {
     const text = await fetch("https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json").then(r => r.text());
     // 끝에서부터 한 줄씩 거슬러 올라가며 2,700개만 (정규식 없이 indexOf — CPU 적게)
@@ -145,6 +145,67 @@ async function updateSp500(env) {
     if (desc.length < 2000) return `짧음 ${desc.length}`;
     await env.DATA.put("fred/SP500.json", `{"source":"CBOE","observations":[${desc.join(",")}]}`);
     return `ok ${desc.length}`;
+  } catch (e) {
+    return "error " + e;
+  }
+}
+
+// 10년치를 쌓아 두고 새 날짜만 앞에 붙임 (최신순, 2,700개 유지) — 출처가 짧게 주거나 막혀도 쌓은 것은 그대로.
+//   저장된 게 없거나·출처가 다르거나·2,000개 미만·마지막 날이 60일 넘게 지났으면 전체를 다시 받음
+async function stored(env, key, source) {
+  const t = await env.DATA.get(key);
+  const head = `{"source":"${source}","observations":[`;
+  if (!t || !t.startsWith(head)) return null;
+  const n = t.split('{"date"').length - 1;
+  const last = t.match(/"date":"(\d{4}-\d\d-\d\d)"/)?.[1];
+  if (n < 2000 || !last || daysSince(last) > 60) return null;
+  return { t, head, n, last };
+}
+async function prepend(env, key, have, fresh) {
+  if (!fresh.length) return "새 자료 없음";
+  let all = fresh.join(",") + "," + have.t.slice(have.head.length, have.t.lastIndexOf("]"));
+  for (let n = have.n + fresh.length; n > 2700; n--) all = all.slice(0, all.lastIndexOf(',{"date"'));
+  await env.DATA.put(key, have.head + all + "]}");
+  return `붙임 ${fresh.length}`;
+}
+
+// S&P500: CBOE 파일 끝에서부터 저장된 마지막 날 다음까지만 읽음
+async function updateSp500(env) {
+  const have = await stored(env, "fred/SP500.json", "CBOE");
+  if (!have) return fullSp500(env);
+  try {
+    const text = await fetch("https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json").then(r => r.text());
+    const fresh = []; // 최신순
+    let end = text.length;
+    for (;;) {
+      const at = text.lastIndexOf('"date"', end - 1);
+      if (at < 0) break;
+      const row = text.slice(at, text.indexOf("}", at));
+      end = at;
+      const d = row.match(/(\d{4}-\d\d-\d\d)/)?.[1];
+      if (!d || d <= have.last) break;
+      const c = Number(row.match(/"close": ?"([\d.]+)"/)?.[1]);
+      if (c > 0) fresh.push(`{"date":"${d}","value":"${c.toFixed(2)}"}`);
+    }
+    return prepend(env, "fred/SP500.json", have, fresh);
+  } catch (e) {
+    return "error " + e;
+  }
+}
+
+// 코스피: ECOS에 저장된 마지막 날 다음부터 오늘까지만 요청
+async function updateKospi(env) {
+  const have = await stored(env, "fred/KOSPI.json", "ECOS");
+  if (!have) return fullKospi(env);
+  try {
+    const from = have.last.replaceAll("-", "");
+    const text = await fetch(`https://ecos.bok.or.kr/api/StatisticSearch/${env.ECOS_API_KEY}/json/kr/1/100/802Y001/D/${from}/${seoulDay()}/0001000`).then(r => r.text());
+    const fresh = [];
+    for (const m of text.matchAll(/"TIME":"(\d{4})(\d\d)(\d\d)","DATA_VALUE":"([\d.]+)"/g)) {
+      const d = `${m[1]}-${m[2]}-${m[3]}`;
+      if (d > have.last) fresh.push(`{"date":"${d}","value":"${m[4]}"}`);
+    }
+    return prepend(env, "fred/KOSPI.json", have, fresh.reverse());
   } catch (e) {
     return "error " + e;
   }
@@ -204,7 +265,7 @@ async function checkHealth(env) {
 }
 
 // 코스피 10년: ECOS 일별(한 줄 약 400자, 1MB) → 날짜·값만 글자로 뽑아 FRED 모양(최신순) "fred/KOSPI.json"
-async function updateKospi(env) {
+async function fullKospi(env) {
   try {
     const url = `https://ecos.bok.or.kr/api/StatisticSearch/${env.ECOS_API_KEY}/json/kr/1/3000/802Y001/D/${seoulDay(3653)}/${seoulDay()}/0001000`;
     const text = await fetch(url).then(r => r.text());
