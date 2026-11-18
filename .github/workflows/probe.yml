@@ -4,14 +4,9 @@ jobs:
   p:
     runs-on: ubuntu-latest
     steps:
-      - env:
-          K: ${{ secrets.ECOS_API_KEY }}
-        run: |
-          curl -s "https://ecos.bok.or.kr/api/StatisticItemList/$K/json/kr/1/50/802Y001" | jq -r '.StatisticItemList.row[]? | "\(.ITEM_CODE) \(.ITEM_NAME) \(.CYCLE) \(.START_TIME) \(.END_TIME)"' | head -12
-          curl -s "https://ecos.bok.or.kr/api/StatisticSearch/$K/json/kr/1/5000/802Y001/D/20160101/20261118/0001000" -o k.json; jq -r '"rows \(.StatisticSearch.list_total_count) got \(.StatisticSearch.row|length) last \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)"' k.json; head -c 300 k.json; echo
+      - run: |
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36"
-          for u in "https://www.bok.or.kr/portal/singl/crncyPolicyDrcMtg/listYear.do?mtgSe=A&menuNo=200755" "https://www.bok.or.kr/portal/singl/crncyPolicyDrcMtg/listYear.do?mtgSe=A&menuNo=200755&pYear=2027"; do
-            curl -sL -A "$UA" -o b.html -w "bok %{http_code} %{size_download}\n" "$u"
-            grep -o '20[0-9][0-9][.년][^<]\{0,40\}' b.html | head -30 | tr '\n' '|'; echo
-            grep -n -i 'class="[^"]*\(date\|day\|mtg\)[^"]*"' b.html | head -8
-          done
+          curl -sL -A "$UA" -o b.html "https://www.bok.or.kr/portal/singl/crncyPolicyDrcMtg/listYear.do?mtgSe=A&menuNo=200755&pYear=2027"
+          grep -n '[0-9]\{1,2\}월 *[0-9]\{1,2\}일\|[0-9]\{4\}\.[0-9]\{2\}\.[0-9]\{2\}\|[0-9]\{1,2\}\.[0-9]\{1,2\}\.(' b.html | head -40
+          echo ====
+          n=$(grep -n '[0-9]\{1,2\}월 *[0-9]\{1,2\}일' b.html | head -1 | cut -d: -f1); sed -n "$((n-15)),$((n+25))p" b.html
