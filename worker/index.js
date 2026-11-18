@@ -167,13 +167,16 @@ async function checkHealth(env) {
       else if (!last || daysSince(last) > late) problems.push(`${name}: ${last || "?"} 뒤로 새 자료 없음`);
     }
     for (const [key, name, late] of [["ecos/base.json", "한국 기준금리", 12], ["ecos/y3.json", "국고채 3년", 12],
-      ["ecos/cpi.json", "한국 물가", 75], ["ecos/deposit.json", "정기예금 금리", 75]]) {
+      ["ecos/cpi.json", "한국 물가", 75], ["ecos/deposit.json", "정기예금 금리", 75], ["ecos/unrate.json", "한국 실업률", 75]]) {
       const t = await env.DATA.get(key);
       const times = [...(t || "").matchAll(/"TIME":"(\d{6,8})"/g)].map(m => m[1]).sort();
       const last = times[times.length - 1];
       if (!last) problems.push(`${name}: 자료 없음`);
       else if (daysSince(last) > late + (last.length === 6 ? 31 : 0)) problems.push(`${name}: ${last} 뒤로 새 자료 없음`);
     }
+    const gq = [...((await env.DATA.get("ecos/gdp.json")) || "").matchAll(/"TIME":"(\d{4})Q(\d)"/g)].map(m => `${m[1]}${String(m[2] * 3).padStart(2, "0")}`).sort().pop();
+    if (!gq) problems.push("한국 GDP: 자료 없음");
+    else if (daysSince(gq) > 200) problems.push(`한국 GDP: ${gq.slice(0, 4)}년 ${Number(gq.slice(4)) / 3}분기 뒤로 새 자료 없음`);
     const k = await env.DATA.get("krx/gold.json");
     const kd = [...(k || "").matchAll(/"basDt":"(\d{8})"/g)].map(m => m[1]).sort().pop();
     if (!kd) problems.push("KRX 금: 자료 없음");
@@ -206,6 +209,10 @@ async function updateSlow(env) {
   jobs.push(["ecos/y10.json", ecos("817Y002", "D", d50, today, "010210000")]);
   jobs.push(["ecos/cpi.json", ecos("901Y009", "M", m26, mon, "0")]);
   jobs.push(["ecos/base_m.json", ecos("722Y001", "M", m26, mon, "0101000")]);
+  // 한국 경기: GDP 성장률(실질, 1년 전 같은 분기 대비, 최근 3년 분기) · 실업률(월별 26달)
+  const yr = Number(today.slice(0, 4));
+  jobs.push(["ecos/gdp.json", ecos("200Y102", "Q", `${yr - 3}Q1`, `${yr}Q4`, "10211")]);
+  jobs.push(["ecos/unrate.json", ecos("901Y027", "M", m26, mon, "I61BC")]);
   jobs.push(["ecos/deposit.json", ecos("121Y002", "M", m26, mon, "BEABAA211")]); // 예금은행 정기예금 평균 금리(신규)
   let ok = 0;
   if ((await updateKrx(env)).startsWith("ok")) ok++;

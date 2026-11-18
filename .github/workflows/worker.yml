@@ -61,6 +61,8 @@ jobs:
           curl -sf "$url/fred/SP500.json" | jq -r '"S&P500 \(.source // "FRED") \(.observations | length)개 \(.observations[0].date)~\(.observations[-1].date)"' || true
           curl -sf "$url/fred/VIXCLS.json" | jq -r '"FRED VIX \(.observations[0].date) (\(.observations | length)개)"'
           curl -sf "$url/ecos/deposit.json" | jq -r '"ECOS 정기예금 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
+          curl -sf "$url/ecos/gdp.json" | jq -r '"ECOS 한국 GDP \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"' || true
+          curl -sf "$url/ecos/unrate.json" | jq -r '"ECOS 한국 실업률 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"' || true
           curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -s "$url/events.json" | jq -c . || true
           (cd worker && npx -y wrangler@4 kv key delete health.json --binding DATA --remote >/dev/null 2>&1) || true
