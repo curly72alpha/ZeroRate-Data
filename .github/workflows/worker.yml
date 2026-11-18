@@ -59,6 +59,7 @@ jobs:
           sleep 40
           curl -sf "$url/fred/UNRATE.json" | jq -r '"FRED 실업률 \(.observations[0].date)"'
           curl -sf "$url/fred/DFII10.json" | jq -r '"FRED 실질금리 \(.observations[0].date) \(.observations[0].value)"' || true
+          curl -s "$url/fred/SP500.json" > /dev/null; sleep 15   # CBOE가 아니면 Worker가 뒤에서 다시 다듬음
           curl -sf "$url/fred/SP500.json" | jq -r '"S&P500 \(.source // "FRED") \(.observations | length)개 \(.observations[0].date)~\(.observations[-1].date)"' || true
           curl -sf "$url/fred/KOSPI.json" | jq -r '"코스피 \(.source) \(.observations | length)개 \(.observations[0].date) \(.observations[0].value)"' || true
           curl -sf "$url/fred/PCEPI_pc1.json" | jq -r '"FRED PCE \(.observations[0].date) \(.observations[0].value)%"' || true

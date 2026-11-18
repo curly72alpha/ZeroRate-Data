@@ -33,11 +33,13 @@ async function updateRates(env) {
 }
 
 // FRED: 최신순 2700개 (앱이 필요한 만큼 잘라 씀), 물가는 1년 전 대비 % 40개
-const FRED_IDS = ["UNRATE", "DGS2", "DFEDTARU", "DFEDTARL", "T10Y2Y", "SP500", "NASDAQQGLDI", "DEXKOUS",
+const FRED_IDS = ["UNRATE", "DGS2", "DFEDTARU", "DFEDTARL", "T10Y2Y", "NASDAQQGLDI", "DEXKOUS",
   "A191RL1Q225SBEA", "DTWEXBGS", "WALCL", "VIXCLS", "DFII10"];
 const SLOW_CRON = "31 */3 * * *";
 // KRX 금 종가는 다음 영업일 오후 1시쯤 공개 → 평일 13:41~18:41(한국) 매시 확인, 전 영업일 종가가 이미 있으면 건너뜀
 const KRX_CRON = "41 4-9 * * 1-5";
+// 큰 파일 다듬기(S&P500 CBOE·코스피 ECOS)와 자료 검사는 따로 — 한 번에 하면 무료 CPU 10ms를 넘어 중간에 끊길 수 있음
+const HEAVY_CRON = "46 */3 * * *";
 async function krxIfMissing(env) {
   let back = 1;
   const wd = new Date(Date.now() + 9 * 3600000).getUTCDay();
@@ -128,13 +130,19 @@ async function updateEvents(env) {
 async function updateSp500(env) {
   try {
     const text = await fetch("https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json").then(r => r.text());
-    const tail = text.slice(-500000);
-    const obs = [];
-    for (const m of tail.matchAll(/"date": ?"(\d{4}-\d\d-\d\d)"[^}]*?"close": ?"([\d.]+)"/g)) {
-      if (Number(m[2]) > 0) obs.push(`{"date":"${m[1]}","value":"${Number(m[2]).toFixed(2)}"}`);
+    // 끝에서부터 한 줄씩 거슬러 올라가며 2,700개만 (정규식 없이 indexOf — CPU 적게)
+    const desc = [];
+    let end = text.length;
+    while (desc.length < 2700) {
+      const at = text.lastIndexOf('"date"', end - 1);
+      if (at < 0) break;
+      const row = text.slice(at, text.indexOf("}", at));
+      end = at;
+      const d = row.match(/(\d{4}-\d\d-\d\d)/)?.[1];
+      const c = Number(row.match(/"close": ?"([\d.]+)"/)?.[1]);
+      if (d && c > 0) desc.push(`{"date":"${d}","value":"${c.toFixed(2)}"}`);
     }
-    if (obs.length < 2000) return `짧음 ${obs.length}`;
-    const desc = obs.slice(-2700).reverse();
+    if (desc.length < 2000) return `짧음 ${desc.length}`;
     await env.DATA.put("fred/SP500.json", `{"source":"CBOE","observations":[${desc.join(",")}]}`);
     return `ok ${desc.length}`;
   } catch (e) {
@@ -272,10 +280,7 @@ async function updateSlow(env) {
       ok++;
     } catch {}
   }
-  await updateSp500(env); // FRED SP500(1년)을 CBOE 10년으로 덮어씀
-  await updateKospi(env);
   if (ok > 0) await env.DATA.put("slow:at", String(Date.now()));
-  await checkHealth(env);
   return `${ok}/${jobs.length + 1}`;
 }
 
@@ -285,6 +290,7 @@ const json = (body, maxAge) => new Response(body, {
 
 export default {
   async scheduled(event, env, ctx) {
+    if (event.cron === HEAVY_CRON) return ctx.waitUntil(updateSp500(env).then(() => updateKospi(env)).then(() => checkHealth(env)));
     ctx.waitUntil(event.cron === SLOW_CRON ? updateSlow(env) : event.cron === KRX_CRON ? krxIfMissing(env)
       : Promise.all([updateRates(env), updateExim(env)]));
   },
@@ -329,6 +335,9 @@ export default {
       const at = Number((await env.DATA.get("slow:at")) || 0);
       if (Date.now() - at > 6 * 3600000) ctx.waitUntil(updateSlow(env));
       let text = await env.DATA.get(path.slice(1), { cacheTtl: 300 });
+      // S&P500이 CBOE 10년이 아니거나 코스피가 없으면 뒤에서 다시 다듬음 (다음 요청부터 반영)
+      if (path === "/fred/SP500.json" && !(text || "").startsWith('{"source":"CBOE"')) ctx.waitUntil(updateSp500(env));
+      if (path === "/fred/KOSPI.json" && !text) { await updateKospi(env); text = await env.DATA.get("fred/KOSPI.json"); }
       // 새로 추가한 자료처럼 KV에 아직 없으면 그 자리에서 한 번 받아 둠 (크론을 기다리지 않음)
       if (!text) {
         await updateSlow(env);
