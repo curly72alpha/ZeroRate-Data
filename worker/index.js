@@ -146,7 +146,7 @@ async function updateSp500(env) {
 //   개수가 평소보다 크게 줄었는지, 마지막 날짜가 너무 오래됐는지 (JSON을 풀지 않고 글자로만 봄)
 const HEALTH = [
   // [KV 키, 이름, 최소 개수, 허용 지연(일)]
-  ["fred/SP500.json", "S&P500", 2000, 6], ["fred/VIXCLS.json", "VIX 기록", 2000, 6],
+  ["fred/SP500.json", "S&P500", 2000, 6], ["fred/KOSPI.json", "코스피", 2000, 6], ["fred/VIXCLS.json", "VIX 기록", 2000, 6],
   ["fred/NASDAQQGLDI.json", "금 지수", 2000, 7], ["fred/DEXKOUS.json", "원/달러 기록", 2000, 10],
   ["fred/DGS2.json", "미국 2년물", 2000, 7], ["fred/T10Y2Y.json", "장단기 금리차", 2000, 7],
   ["fred/DFII10.json", "실질금리", 2000, 7], ["fred/DTWEXBGS.json", "달러지수", 2000, 12],
@@ -193,6 +193,21 @@ async function checkHealth(env) {
   return problems;
 }
 
+// 코스피 10년: ECOS 일별(한 줄 약 400자, 1MB) → 날짜·값만 글자로 뽑아 FRED 모양(최신순) "fred/KOSPI.json"
+async function updateKospi(env) {
+  try {
+    const url = `https://ecos.bok.or.kr/api/StatisticSearch/${env.ECOS_API_KEY}/json/kr/1/3000/802Y001/D/${seoulDay(3653)}/${seoulDay()}/0001000`;
+    const text = await fetch(url).then(r => r.text());
+    const obs = [];
+    for (const m of text.matchAll(/"TIME":"(\d{4})(\d\d)(\d\d)","DATA_VALUE":"([\d.]+)"/g)) obs.push(`{"date":"${m[1]}-${m[2]}-${m[3]}","value":"${m[4]}"}`);
+    if (obs.length < 2000) return `짧음 ${obs.length} ${text.slice(0, 120)}`;
+    await env.DATA.put("fred/KOSPI.json", `{"source":"ECOS","observations":[${obs.reverse().join(",")}]}`);
+    return `ok ${obs.length}`;
+  } catch (e) {
+    return "error " + e;
+  }
+}
+
 async function updateSlow(env) {
   if (await env.DATA.get("slow:lock")) return "받는 중";
   await env.DATA.put("slow:lock", "1", { expirationTtl: 300 });
@@ -229,6 +244,7 @@ async function updateSlow(env) {
     } catch {}
   }
   await updateSp500(env); // FRED SP500(1년)을 CBOE 10년으로 덮어씀
+  await updateKospi(env);
   if (ok > 0) await env.DATA.put("slow:at", String(Date.now()));
   await checkHealth(env);
   return `${ok}/${jobs.length + 1}`;
