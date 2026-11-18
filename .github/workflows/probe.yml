@@ -5,6 +5,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -s -o s.json -w "cboe %{http_code} %{size_download}\n" https://cdn.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json
+          curl -sL -o s.json -w "cboe %{url_effective} %{http_code} %{size_download}\n" https://cdn.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json
           head -c 300 s.json; echo; jq -r '.data | length, .[0], .[-1]' s.json 2>&1 | head -5
           curl -s -o y.json -w "yahoo %{http_code}\n" -A "Mozilla/5.0" "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=10y&interval=1d"; head -c 200 y.json; echo
