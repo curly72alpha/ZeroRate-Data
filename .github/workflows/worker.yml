@@ -69,6 +69,7 @@ jobs:
           curl -sf "$url/ecos/unrate.json" | jq -r '"ECOS 한국 실업률 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"' || true
           curl -sf "$url/ecos/base_m.json" | jq -r '"ECOS 기준금리 \(.StatisticSearch.row[-1].TIME) \(.StatisticSearch.row[-1].DATA_VALUE)%"'
           curl -s "$url/events.json" | jq -c . || true
+          curl -s "$url/vix/quote.json" | jq -c '{price: .data.current_price, open: .data.open, high: .data.high, low: .data.low, last: .data.last_trade_time, keys: (.data | keys)}' || true
           (cd worker && npx -y wrangler@4 kv key delete exim.json --binding DATA --remote >/dev/null 2>&1) || true
           curl -s "$url/exim.json" | jq -r '"수출입은행 \(.date): " + ([.rows[] | select(.cur_unit=="USD" or .cur_unit=="JPY(100)") | "\(.cur_unit) 기준 \(.deal_bas_r) 보낼때 \(.tts) 받을때 \(.ttb)"] | join(" / ")) + " (통화 \(.rows|length)개)"' 2>/dev/null || curl -s "$url/exim.json" | head -c 300
           (cd worker && npx -y wrangler@4 kv key delete health.json --binding DATA --remote >/dev/null 2>&1) || true

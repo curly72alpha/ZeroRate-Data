@@ -40,6 +40,45 @@ const SLOW_CRON = "31 */3 * * *";
 const KRX_CRON = "41 4-9 * * 1-5";
 // 큰 파일 다듬기(S&P500 CBOE·코스피 ECOS)와 자료 검사는 따로 — 한 번에 하면 무료 CPU 10ms를 넘어 중간에 끊길 수 있음
 const HEAVY_CRON = "46 */3 * * *";
+// VIX 하루 그래프: CBOE 장중(1분) 파일이 2026-11 403으로 막혀, 공개된 현재값을 정규장 동안 10분마다 직접 모음 (하루 약 40번)
+const VIX_CRON = "3-59/10 13-21 * * 1-5";
+const VIX_QUOTE = "https://cdn-api.cboe.com/api/global/delayed_quotes/quotes/_VIX.json";
+function nyNow() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, hm: `${p.hour === "24" ? "00" : p.hour}:${p.minute}` };
+}
+// 현재값: 폰들이 CBOE에 직접 묻지 않게 Worker가 1분에 한 번만 받아 둠
+async function vixQuote(env, maxAgeSec = 60) {
+  const have = await env.DATA.get("vix/quote.json");
+  const at = Number(have?.match(/"_at":(\d+)/)?.[1] || 0);
+  if (have && Date.now() - at < maxAgeSec * 1000) return have;
+  try {
+    const q = await fetch(VIX_QUOTE).then(r => (r.ok ? r.json() : null));
+    if (q?.data?.current_price > 0) {
+      q._at = Date.now();
+      const t = JSON.stringify(q);
+      await env.DATA.put("vix/quote.json", t);
+      return t;
+    }
+  } catch {}
+  return have;
+}
+async function sampleVix(env) {
+  const ny = nyNow();
+  if (ny.hm < "09:30" || ny.hm > "16:20") return "장외";
+  const t = await vixQuote(env, 30);
+  if (!t) return "현재값 없음";
+  const d = JSON.parse(t).data || {};
+  const traded = String(d.last_trade_time || "").slice(0, 10);
+  if (traded && traded !== ny.date) return "휴장"; // 오늘 거래가 없으면 (공휴일) 기록 안 함
+  let day = JSON.parse((await env.DATA.get("vix/day.json")) || "null");
+  if (!day || day.date !== ny.date) day = { date: ny.date, points: [] };
+  if (day.points.at(-1)?.[0] !== ny.hm) day.points.push([ny.hm, Number(d.current_price)]);
+  for (const k of ["open", "high", "low", "prev_day_close"]) if (Number(d[k]) > 0) day[k] = Number(d[k]);
+  await env.DATA.put("vix/day.json", JSON.stringify(day));
+  return `ok ${day.points.length}`;
+}
 async function krxIfMissing(env) {
   let back = 1;
   const wd = new Date(Date.now() + 9 * 3600000).getUTCDay();
@@ -396,6 +435,7 @@ const json = (body, maxAge) => new Response(body, {
 
 export default {
   async scheduled(event, env, ctx) {
+    if (event.cron === VIX_CRON) return ctx.waitUntil(sampleVix(env));
     if (event.cron === HEAVY_CRON) return ctx.waitUntil(updateSp500(env).then(() => updateKospi(env)).then(() => checkHealth(env)));
     ctx.waitUntil(event.cron === SLOW_CRON ? updateSlow(env) : event.cron === KRX_CRON ? krxIfMissing(env)
       : Promise.all([updateRates(env), updateExim(env)]));
@@ -419,6 +459,14 @@ export default {
         await env.DATA.put("hist:" + h[1], text, { expirationTtl: 10 * 86400 });
       }
       return json(text, 86400);
+    }
+    if (path === "/vix/quote.json") {
+      const t = await vixQuote(env);
+      return t ? json(t, 30) : new Response("없음", { status: 503 });
+    }
+    if (path === "/vix/day.json") {
+      const t = await env.DATA.get("vix/day.json");
+      return t ? json(t, 120) : new Response("아직 없음", { status: 404 });
     }
     if (path === "/exim.json") {
       let text = await env.DATA.get("exim.json", { cacheTtl: 300 });
