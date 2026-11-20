@@ -1,0 +1,10 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for u in https://cdn.cboe.com/api/global/delayed_quotes/charts/intraday/_VIX.json https://cdn-api.cboe.com/api/global/delayed_quotes/charts/intraday/_VIX.json https://cdn.cboe.com/api/global/delayed_quotes/quotes/_VIX.json; do
+            curl -s -o o.json -w "$u %{http_code} %{size_download} -> %{redirect_url}\n" "$u"; head -c 200 o.json; echo
+          done
