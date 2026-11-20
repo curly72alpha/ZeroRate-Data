@@ -7,6 +7,9 @@
 // - KRX 금(공공데이터포털)도 같은 크론에서 받음(쪽을 글자로 이어 붙여 CPU 아낌). GitHub 중계는 쓰지 않음(11-18).
 // 앱은 이 주소 하나만 읽고, 키는 이 Worker의 Secret(OXR_APP_ID·FRED_API_KEY·ECOS_API_KEY·DATA_GO_KR_KEY)과 GitHub Secret에만 있음.
 
+// 원격 스위치: 이 번호보다 작은 빌드의 앱은 시세 사이트(야후·네이버) 요청을 멈춤, 환율은 그대로 (0 = 모두 켜짐)
+const MIN_BUILD = 0;
+
 const hourOf = (ts) => Math.floor(ts / 3600);
 
 async function updateRates(env) {
@@ -433,6 +436,9 @@ export default {
       }
       return json(text, 86400);
     }
+    // 원격 스위치 (11-21): 앱 빌드 번호가 minBuild보다 작으면 그 앱은 시세 사이트(야후·네이버) 요청을 멈춤(환율은 됨).
+    // 바꾸려면 아래 MIN_BUILD 숫자만 고쳐 푸시 — 지인 앱을 끌 때 마스터 앱보다 작은 번호로.
+    if (path === "/config.json") return json(JSON.stringify({ minBuild: MIN_BUILD }), 300);
     if (path === "/exim.json") {
       let text = await env.DATA.get("exim.json", { cacheTtl: 300 });
       if (!text) { const r = await updateExim(env, true); text = await env.DATA.get("exim.json"); if (!text) return new Response(r, { status: 503 }); }
