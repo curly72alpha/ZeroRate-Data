@@ -1,0 +1,9 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s -o a.json -w "cboe intraday VIX %{http_code}\n" https://cdn-api.cboe.com/api/global/delayed_quotes/charts/intraday/_VIX.json
+          curl -s -o y.json -w "yahoo VIX 1m %{http_code}\n" "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1m&range=1d"; head -c 160 y.json; echo
