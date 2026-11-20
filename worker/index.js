@@ -215,7 +215,10 @@ async function updateSp500(env) {
   const have = await stored(env, "fred/SP500.json", "CBOE");
   if (!have) return fullSp500(env);
   try {
-    const text = await fetch("https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json").then(r => r.text());
+    const r = await fetch("https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/_SPX.json");
+    // CBOE가 클라우드 접속을 막으면(2026-11-20부터 403) FRED 최근 1년에서 새 날짜만 붙임 — 쌓아 둔 10년은 그대로
+    if (!r.ok) return sp500FromFred(env, have);
+    const text = await r.text();
     const fresh = []; // 최신순
     let end = text.length;
     for (;;) {
@@ -232,6 +235,15 @@ async function updateSp500(env) {
   } catch (e) {
     return "error " + e;
   }
+}
+
+async function sp500FromFred(env, have) {
+  const r = await fetch(`https://api.stlouisfed.org/fred/series/observations?series_id=SP500&api_key=${env.FRED_API_KEY}&file_type=json&sort_order=desc&observation_start=${have.last}`);
+  if (!r.ok) return "FRED 실패";
+  const fresh = ((await r.json()).observations || [])
+    .filter(o => o.date > have.last && Number(o.value) > 0)
+    .map(o => `{"date":"${o.date}","value":"${Number(o.value).toFixed(2)}"}`);
+  return prepend(env, "fred/SP500.json", have, fresh);
 }
 
 // 코스피: ECOS에 저장된 마지막 날 다음부터 오늘까지만 요청
