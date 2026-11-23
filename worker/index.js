@@ -447,15 +447,26 @@ async function translate(req, env) {
   if (req.method !== "POST" || req.headers.get("x-app") !== "ZeroFeed") return new Response("없음", { status: 404 });
   let body;
   try { body = await req.json(); } catch { return new Response("잘못된 요청", { status: 400 }); }
-  const engine = body.engine === "deepl" ? "deepl" : "gemini";
+  // auto(기본, 마스터 11-23): DeepL 먼저, 한자·일본어가 섞였거나 한글이 없는 것만 Gemini로 다시 (Gemini 무료 한도 아끼기)
+  const engine = body.engine === "deepl" ? "deepl" : body.engine === "gemini" ? "gemini" : "auto";
   const texts = (Array.isArray(body.texts) ? body.texts : []).slice(0, 50).map(String);
   const keys = await Promise.all(texts.map(t => sha(t).then(h => `tr:${engine[0]}:${h}`)));
   const ko = await Promise.all(keys.map(k => env.DATA.get(k)));
   const miss = texts.map((t, i) => (ko[i] ? -1 : i)).filter(i => i >= 0);
   if (miss.length) {
     try {
-      const out = await (engine === "gemini" ? gemini : deepl)(env, miss.map(i => texts[i]));
+      const src = miss.map(i => texts[i]);
+      const out = await (engine === "gemini" ? gemini : deepl)(env, src);
       if (out.length !== miss.length) throw new Error("개수 다름");
+      if (engine === "auto") {
+        const bad = out.map((k, n) => (!/[가-힣]/.test(k) || /[\u3040-\u30ff\u4e00-\u9fff]/.test(k) ? n : -1)).filter(n => n >= 0);
+        if (bad.length) {
+          try {
+            const fix = await gemini(env, bad.map(n => src[n]));
+            if (fix.length === bad.length) bad.forEach((n, m) => { if (fix[m]) out[n] = fix[m]; });
+          } catch {}
+        }
+      }
       await Promise.all(miss.map((i, n) => { ko[i] = out[n]; return out[n] ? env.DATA.put(keys[i], out[n], { expirationTtl: TR_TTL }) : null; }));
     } catch (e) {
       return new Response(String(e.message || e), { status: 502 });
