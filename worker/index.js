@@ -419,13 +419,13 @@ async function gemini(env, texts) {
     "설명 없이, 같은 순서의 JSON 문자열 배열로만 답하세요.\n" + texts.map((t, i) => `${i + 1}. ${t}`).join("\n");
   // 붐벼서 503·429면 다음 모델로 (11-23 첫 시험에서 flash-latest가 503)
   let r;
-  for (const model of ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest"]) {
+  for (const model of ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.0-flash"]) {
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.2 } }),
     });
-    if (r.status !== 503 && r.status !== 429) break;
+    if (![404, 429, 500, 503].includes(r.status)) break;
   }
   if (!r.ok) throw new Error("gemini " + r.status + " " + (await r.text()).slice(0, 200));
   const j = await r.json();
