@@ -453,6 +453,8 @@ async function translate(req, env) {
   const keys = await Promise.all(texts.map(t => sha(t).then(h => `tr:${engine[0]}:${h}`)));
   const ko = await Promise.all(keys.map(k => env.DATA.get(k)));
   const miss = texts.map((t, i) => (ko[i] ? -1 : i)).filter(i => i >= 0);
+  let err = "";
+  const short = new Set();
   if (miss.length) {
     try {
       const src = miss.map(i => texts[i]);
@@ -463,16 +465,18 @@ async function translate(req, env) {
         if (bad.length) {
           try {
             const fix = await gemini(env, bad.map(n => src[n]));
-            if (fix.length === bad.length) bad.forEach((n, m) => { if (fix[m]) out[n] = fix[m]; });
-          } catch {}
+            if (fix.length === bad.length) bad.forEach((n, m) => { if (fix[m]) { out[n] = fix[m]; bad[m] = -1; } });
+          } catch (e) { err = String(e.message || e).slice(0, 300); }
+          // 고치지 못한 것은 하루만 저장 → 다음 날 Gemini로 다시
+          bad.filter(n => n >= 0).forEach(n => short.add(miss[n]));
         }
       }
-      await Promise.all(miss.map((i, n) => { ko[i] = out[n]; return out[n] ? env.DATA.put(keys[i], out[n], { expirationTtl: TR_TTL }) : null; }));
+      await Promise.all(miss.map((i, n) => { ko[i] = out[n]; return out[n] ? env.DATA.put(keys[i], out[n], { expirationTtl: short.has(i) ? 86400 : TR_TTL }) : null; }));
     } catch (e) {
       return new Response(String(e.message || e), { status: 502 });
     }
   }
-  return new Response(JSON.stringify({ ko: ko.map(x => x || "") }), { headers: { "content-type": "application/json; charset=utf-8" } });
+  return new Response(JSON.stringify(err ? { ko: ko.map(x => x || ""), err } : { ko: ko.map(x => x || "") }), { headers: { "content-type": "application/json; charset=utf-8" } });
 }
 
 const json = (body, maxAge) => new Response(body, {
