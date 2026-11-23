@@ -406,6 +406,59 @@ async function updateSlow(env) {
   return `${ok}/${jobs.length + 1}`;
 }
 
+// ── ZeroFeed 해외 기사 제목 번역 (11-23). 키는 Worker Secret GEMINI_API_KEY·DEEPL_API_KEY, 앱에는 없음.
+// POST /translate {engine:"gemini"|"deepl", texts:[영어 제목...]} → {ko:[한글...]}. 같은 제목은 KV에 60일 저장해 다시 안 부름.
+const TR_TTL = 60 * 86400;
+async function sha(s) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+async function gemini(env, texts) {
+  const prompt = "다음은 영어 뉴스 기사 제목입니다. 각각을 한국 신문 제목처럼 자연스럽고 짧은 한국어로 번역하세요. " +
+    "나라·기업·인물 이름은 한국 언론이 쓰는 표기로 쓰세요(예: U.S.→미국, Nvidia→엔비디아). " +
+    "설명 없이, 같은 순서의 JSON 문자열 배열로만 답하세요.\n" + texts.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.2 } }),
+  });
+  if (!r.ok) throw new Error("gemini " + r.status + " " + (await r.text()).slice(0, 200));
+  const j = await r.json();
+  const s = j.candidates[0].content.parts.map(p => p.text || "").join("").trim().replace(/^```(json)?/, "").replace(/```$/, "");
+  return JSON.parse(s).map(x => String(x).trim());
+}
+async function deepl(env, texts) {
+  const key = (env.DEEPL_API_KEY || "").trim();
+  const host = key.endsWith(":fx") ? "api-free.deepl.com" : "api.deepl.com";
+  const r = await fetch(`https://${host}/v2/translate`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "DeepL-Auth-Key " + key },
+    body: JSON.stringify({ text: texts, source_lang: "EN", target_lang: "KO" }),
+  });
+  if (!r.ok) throw new Error("deepl " + r.status + " " + (await r.text()).slice(0, 200));
+  return (await r.json()).translations.map(x => x.text.trim());
+}
+async function translate(req, env) {
+  if (req.method !== "POST" || req.headers.get("x-app") !== "ZeroFeed") return new Response("없음", { status: 404 });
+  let body;
+  try { body = await req.json(); } catch { return new Response("잘못된 요청", { status: 400 }); }
+  const engine = body.engine === "deepl" ? "deepl" : "gemini";
+  const texts = (Array.isArray(body.texts) ? body.texts : []).slice(0, 50).map(String);
+  const keys = await Promise.all(texts.map(t => sha(t).then(h => `tr:${engine[0]}:${h}`)));
+  const ko = await Promise.all(keys.map(k => env.DATA.get(k)));
+  const miss = texts.map((t, i) => (ko[i] ? -1 : i)).filter(i => i >= 0);
+  if (miss.length) {
+    try {
+      const out = await (engine === "gemini" ? gemini : deepl)(env, miss.map(i => texts[i]));
+      if (out.length !== miss.length) throw new Error("개수 다름");
+      await Promise.all(miss.map((i, n) => { ko[i] = out[n]; return out[n] ? env.DATA.put(keys[i], out[n], { expirationTtl: TR_TTL }) : null; }));
+    } catch (e) {
+      return new Response(String(e.message || e), { status: 502 });
+    }
+  }
+  return new Response(JSON.stringify({ ko: ko.map(x => x || "") }), { headers: { "content-type": "application/json; charset=utf-8" } });
+}
+
 const json = (body, maxAge) => new Response(body, {
   headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${maxAge}` },
 });
@@ -418,6 +471,7 @@ export default {
   },
   async fetch(req, env, ctx) {
     const path = new URL(req.url).pathname;
+    if (path === "/translate") return translate(req, env);
     if (path === "/latest.json") {
       let text = await env.DATA.get("latest.json", { cacheTtl: 60 });
       if (!text) { await updateRates(env); text = await env.DATA.get("latest.json"); }

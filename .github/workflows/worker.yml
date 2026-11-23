@@ -41,6 +41,8 @@ jobs:
           printf '%s' "${{ secrets.FRED_API_KEY }}" | npx -y wrangler@4 secret put FRED_API_KEY
           printf '%s' "${{ secrets.ECOS_API_KEY }}" | npx -y wrangler@4 secret put ECOS_API_KEY
           printf '%s' "${{ secrets.DATA_GO_KR_KEY }}" | npx -y wrangler@4 secret put DATA_GO_KR_KEY
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then printf '%s' "${{ secrets.GEMINI_API_KEY }}" | npx -y wrangler@4 secret put GEMINI_API_KEY; fi
+          if [ -n "${{ secrets.DEEPL_API_KEY }}" ]; then printf '%s' "${{ secrets.DEEPL_API_KEY }}" | npx -y wrangler@4 secret put DEEPL_API_KEY; fi
           if [ -n "${{ secrets.EXIM_API_KEY }}" ]; then printf '%s' "${{ secrets.EXIM_API_KEY }}" | npx -y wrangler@4 secret put EXIM_API_KEY; fi
       - name: 일정 새로 받게 (배포한 코드로)
         working-directory: worker
@@ -72,4 +74,5 @@ jobs:
           curl -s "$url/exim.json" | jq -r '"수출입은행 \(.date): " + ([.rows[] | select(.cur_unit=="USD" or .cur_unit=="JPY(100)") | "\(.cur_unit) 기준 \(.deal_bas_r) 보낼때 \(.tts) 받을때 \(.ttb)"] | join(" / ")) + " (통화 \(.rows|length)개)"' 2>/dev/null || curl -s "$url/exim.json" | head -c 300
           (cd worker && npx -y wrangler@4 kv key delete health.json --binding DATA --remote >/dev/null 2>&1) || true
           curl -s "$url/health.json" | jq -c '"자료 검사: \(.problems)"' || true
+          for e in gemini deepl; do echo "번역 $e: $(curl -s -X POST -H 'x-app: ZeroFeed' -H 'content-type: application/json' -d "{\"engine\":\"$e\",\"texts\":[\"U.S. probes Nvidia over chip exports to China\"]}" "$url/translate")"; done
           curl -sf "$url/krx/gold.json" | jq -r '"KRX 금 \(.response.body.totalCount)개, 받은 것 \(.response.body.items.item | length)개"'
