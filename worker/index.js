@@ -417,11 +417,16 @@ async function gemini(env, texts) {
   const prompt = "다음은 영어 뉴스 기사 제목입니다. 각각을 한국 신문 제목처럼 자연스럽고 짧은 한국어로 번역하세요. " +
     "나라·기업·인물 이름은 한국 언론이 쓰는 표기로 쓰세요(예: U.S.→미국, Nvidia→엔비디아). " +
     "설명 없이, 같은 순서의 JSON 문자열 배열로만 답하세요.\n" + texts.map((t, i) => `${i + 1}. ${t}`).join("\n");
-  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.2 } }),
-  });
+  // 붐벼서 503·429면 다음 모델로 (11-23 첫 시험에서 flash-latest가 503)
+  let r;
+  for (const model of ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest"]) {
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.2 } }),
+    });
+    if (r.status !== 503 && r.status !== 429) break;
+  }
   if (!r.ok) throw new Error("gemini " + r.status + " " + (await r.text()).slice(0, 200));
   const j = await r.json();
   const s = j.candidates[0].content.parts.map(p => p.text || "").join("").trim().replace(/^```(json)?/, "").replace(/```$/, "");
