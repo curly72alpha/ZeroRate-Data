@@ -7,7 +7,7 @@
 // - KRX 금(공공데이터포털)도 같은 크론에서 받음(쪽을 글자로 이어 붙여 CPU 아낌). GitHub 중계는 쓰지 않음(11-18).
 // 앱은 이 주소 하나만 읽고, 키는 이 Worker의 Secret(OXR_APP_ID·FRED_API_KEY·ECOS_API_KEY·DATA_GO_KR_KEY)과 GitHub Secret에만 있음.
 
-// 원격 스위치: 이 번호보다 작은 빌드의 앱은 시세 사이트(야후·네이버) 요청을 멈춤, 환율은 그대로 (0 = 모두 켜짐)
+// 원격 스위치: 이 번호보다 작은 빌드의 앱은 환율만 남고 나머지(야후·네이버, Worker의 금리·시장·금·경제 지표 등)가 모두 멈춤 (0 = 모두 켜짐)
 const MIN_BUILD = 0;
 
 const hourOf = (ts) => Math.floor(ts / 3600);
@@ -509,6 +509,13 @@ export default {
         await env.DATA.put("hist:" + h[1], text, { expirationTtl: 10 * 86400 });
       }
       return json(text, 86400);
+    }
+    // 원격 스위치 2 (11-27): 앱이 밝힌 빌드 번호(User-Agent "ZeroRate/240 …", #233부터)가 MIN_BUILD보다 작으면
+    // 환율(위 /latest·/historical) 말고는 모두 거절 — 금리 신호·시장·금·경제 지표·송금·일정·VIX 예비 등.
+    // 지인 앱(#240)을 앱 수정 없이 끌 수 있음. 번호를 안 밝히는 #233 전 빌드는 해당 없음.
+    const ua = (req.headers.get("User-Agent") || "").match(/^ZeroRate\/(\d+)/);
+    if (MIN_BUILD > 0 && ua && Number(ua[1]) < MIN_BUILD && path !== "/config.json") {
+      return new Response("이 버전은 꺼졌습니다", { status: 403 });
     }
     // 원격 스위치 (11-21): 앱 빌드 번호가 minBuild보다 작으면 그 앱은 시세 사이트(야후·네이버) 요청을 멈춤(환율은 됨).
     // 바꾸려면 아래 MIN_BUILD 숫자만 고쳐 푸시 — 지인 앱을 끌 때 마스터 앱보다 작은 번호로.
